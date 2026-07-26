@@ -12,7 +12,13 @@ export async function GET(request: Request) {
   if (!/^[A-Z0-9]{5,24}$/.test(symbol) || !intervals.has(interval)) return NextResponse.json({ error: "無效的合約或週期" }, { status: 400 });
   try {
     const upstream = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`, { headers: { "User-Agent": "orbital-futures-drill/1.0" }, cache: "no-store" });
-    if (!upstream.ok) return NextResponse.json({ error: "此代號目前不是 Binance 可交易的 USDⓈ-M 永續合約；請從下拉選單重新選擇。" }, { status: 502 });
+    if (!upstream.ok) {
+      const body = await upstream.json().catch(() => null) as { code?: number; msg?: string } | null;
+      const error = body?.code === -1121
+        ? "此代號目前不是 Binance 可交易的 USDⓈ-M 永續合約；請從下拉選單重新選擇。"
+        : `暫時無法取得 Binance K 線資料（HTTP ${upstream.status}${body?.msg ? `：${body.msg}` : ""}）。`;
+      return NextResponse.json({ error }, { status: 502 });
+    }
     const rows: unknown = await upstream.json();
     if (!Array.isArray(rows)) return NextResponse.json({ error: "Binance 回傳格式異常" }, { status: 502 });
     const candles = rows.slice(0, -1).map((row: unknown) => {

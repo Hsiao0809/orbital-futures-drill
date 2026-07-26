@@ -66,9 +66,20 @@ export default function Home() {
   }, [query, contract, availableContracts]);
 
   useEffect(() => {
-    fetch("/api/contracts", { cache: "no-store" })
-      .then(async (response) => response.ok ? response.json() : Promise.reject())
-      .then((payload) => { if (Array.isArray(payload.contracts) && payload.contracts.length) setAvailableContracts(payload.contracts); })
+    fetch("https://fapi.binance.com/fapi/v1/exchangeInfo", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`無法取得 Binance 合約清單（HTTP ${response.status}）`);
+        return response.json() as Promise<{ symbols?: Array<{ symbol: string; baseAsset: string; quoteAsset: string; contractType: string; status: string }> }>;
+      })
+      .then((payload) => {
+        const contracts = (payload.symbols || [])
+          .filter((item) => item.contractType === "PERPETUAL" && item.quoteAsset === "USDT" && item.status === "TRADING")
+          .map((item) => ({ symbol: item.symbol, name: item.baseAsset }))
+          .sort((a, b) => a.symbol.localeCompare(b.symbol));
+        if (!contracts.length) throw new Error("Binance 沒有回傳可交易的 USDT 永續合約");
+        setAvailableContracts(contracts);
+        setContract((selected) => contracts.find((item) => item.symbol === selected.symbol) || contracts[0]);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -83,10 +94,17 @@ export default function Home() {
     setPosition(null);
     setLastChange(null);
     try {
-      const response = await fetch(`/api/klines?symbol=${contract.symbol}&interval=${timeframe}&limit=260`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok || !Array.isArray(payload.candles)) throw new Error(payload.error || "無法取得歷史 K 線");
-      const history = payload.candles as Candle[];
+      const response = await fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${contract.symbol}&interval=${timeframe}&limit=260`, { cache: "no-store" });
+      const payload: unknown = await response.json();
+      if (!response.ok) {
+        const upstreamMessage = typeof payload === "object" && payload && "msg" in payload ? String(payload.msg) : "";
+        throw new Error(`無法取得 Binance K 線資料（HTTP ${response.status}）${upstreamMessage ? `：${upstreamMessage}` : ""}`);
+      }
+      if (!Array.isArray(payload)) throw new Error("Binance K 線 API 回傳格式異常");
+      const history = payload.slice(0, -1).map((row): Candle => {
+        const item = row as [number, string, string, string, string];
+        return { time: Number(item[0]), open: Number(item[1]), high: Number(item[2]), low: Number(item[3]), close: Number(item[4]) };
+      });
       const first = CONTEXT_BARS;
       const last = history.length - ROUND_BARS;
       if (last <= first) throw new Error("可用的已收線資料不足，請再試一次");
