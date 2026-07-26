@@ -11,9 +11,34 @@ const contracts = [
   { symbol: "SOLUSDT", name: "Solana", price: 164.8, tone: "#48e0b8" },
   { symbol: "XRPUSDT", name: "XRP", price: 0.592, tone: "#56b5ff" },
   { symbol: "DOGEUSDT", name: "Dogecoin", price: 0.132, tone: "#ffcf5a" },
+  { symbol: "BNBUSDT", name: "BNB", price: 604.2, tone: "#f3ba2f" },
+  { symbol: "ADAUSDT", name: "Cardano", price: 0.431, tone: "#5ba8f5" },
+  { symbol: "AVAXUSDT", name: "Avalanche", price: 32.4, tone: "#ef6d73" },
+  { symbol: "LINKUSDT", name: "Chainlink", price: 14.76, tone: "#4b8fff" },
+  { symbol: "DOTUSDT", name: "Polkadot", price: 5.91, tone: "#eb68a8" },
+  { symbol: "LTCUSDT", name: "Litecoin", price: 84.2, tone: "#b9c4d0" },
+  { symbol: "TRXUSDT", name: "TRON", price: 0.116, tone: "#ff5a5f" },
   { symbol: "SUIUSDT", name: "Sui", price: 0.822, tone: "#65d8ff" },
   { symbol: "HYPEUSDT", name: "Hyperliquid", price: 25.48, tone: "#f56aa0" },
   { symbol: "ENAUSDT", name: "Ethena", price: 0.364, tone: "#a9a6ff" },
+  { symbol: "WIFUSDT", name: "dogwifhat", price: 1.64, tone: "#b1d6e7" },
+  { symbol: "PEPEUSDT", name: "Pepe", price: 0.000011, tone: "#74d66e" },
+  { symbol: "FARTCOINUSDT", name: "Fartcoin", price: 0.78, tone: "#e6ca78" },
+  { symbol: "PENGUUSDT", name: "Pudgy Penguins", price: 0.012, tone: "#8be0ed" },
+  { symbol: "BONKUSDT", name: "Bonk", price: 0.000018, tone: "#f2a848" },
+  { symbol: "WLDUSDT", name: "Worldcoin", price: 2.16, tone: "#e9ecef" },
+  { symbol: "ARBUSDT", name: "Arbitrum", price: 0.73, tone: "#66aef2" },
+  { symbol: "OPUSDT", name: "Optimism", price: 1.87, tone: "#ff6871" },
+  { symbol: "APTUSDT", name: "Aptos", price: 7.1, tone: "#ececf0" },
+  { symbol: "INJUSDT", name: "Injective", price: 24.6, tone: "#7ac6f8" },
+  { symbol: "TIAUSDT", name: "Celestia", price: 7.4, tone: "#dca8f3" },
+  { symbol: "NEARUSDT", name: "NEAR Protocol", price: 5.2, tone: "#e7e8e9" },
+  { symbol: "SEIUSDT", name: "Sei", price: 0.49, tone: "#ff6575" },
+  { symbol: "TONUSDT", name: "Toncoin", price: 6.45, tone: "#57bde9" },
+  { symbol: "ATOMUSDT", name: "Cosmos", price: 9.2, tone: "#6979dd" },
+  { symbol: "FILUSDT", name: "Filecoin", price: 5.55, tone: "#1bb7ed" },
+  { symbol: "AAVEUSDT", name: "Aave", price: 96.8, tone: "#a38ee6" },
+  { symbol: "1000SHIBUSDT", name: "Shiba Inu", price: 17.4, tone: "#f19542" },
 ];
 
 function seededSeries(base: number, seed: number): Candle[] {
@@ -40,8 +65,9 @@ function price(value: number) {
 
 export default function Home() {
   const [contract, setContract] = useState(contracts[0]);
+  const [contractQuery, setContractQuery] = useState(contracts[0].symbol);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [timeframe, setTimeframe] = useState("15m");
-  const [difficulty, setDifficulty] = useState("標準");
   const [visible, setVisible] = useState(38);
   const [side, setSide] = useState<Side>(null);
   const [leverage, setLeverage] = useState(5);
@@ -51,12 +77,14 @@ export default function Home() {
 
   const candles = useMemo(() => seededSeries(contract.price, contracts.findIndex((item) => item.symbol === contract.symbol) + 3), [contract]);
   const shown = candles.slice(Math.max(0, visible - 28), visible);
+  const matchedContracts = contracts.filter((item) => `${item.symbol} ${item.name}`.toLowerCase().includes(contractQuery.toLowerCase())).slice(0, 7);
   const current = candles[Math.max(0, visible - 1)];
   const movement = current ? ((current.close / current.open - 1) * 100).toFixed(2) : "0.00";
   const canReveal = visible < candles.length;
 
   useEffect(() => {
     setVisible(38);
+    setContractQuery(contract.symbol);
     setSide(null);
     setLog([`${contract.symbol} 永續合約已載入。未來 38 根 K 線已鎖定。`]);
     setNote("先等待關鍵位確認，再決定是否進場。");
@@ -114,8 +142,8 @@ export default function Home() {
       <section className="intro">
         <div>
           <p className="eyebrow">CRYPTO PERPETUAL TRAINING</p>
-          <h1>把每一次判斷，<br /><i>變成可重複訓練的盤感。</i></h1>
-          <p className="intro-copy">你不需要預測每一根 K 線。先選擇方向或觀望，鎖住未來，再用決策品質而非單次盈虧累積能力。</p>
+          <h1>USDT 永續合約盤感訓練</h1>
+          <p className="intro-copy">選方向或觀望，鎖住未來，讓決策品質而非單次盈虧累積能力。</p>
         </div>
         <div className="streak-card">
           <span>今日訓練</span>
@@ -128,8 +156,8 @@ export default function Home() {
       <section className="training-grid">
         <aside className="control-panel">
           <div className="panel-heading"><span>01</span><div><h2>設定訓練</h2><p>只使用 USDT 永續合約</p></div></div>
-          <label>合約交易對<select value={contract.symbol} onChange={(event) => setContract(contracts.find((item) => item.symbol === event.target.value) || contracts[0])}>{contracts.map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol} · {item.name}</option>)}</select></label>
-          <div className="two-selects"><label>週期<select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}><option>5m</option><option>15m</option><option>1h</option><option>4h</option></select></label><label>難度<select value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option>入門</option><option>標準</option><option>進階</option></select></label></div>
+          <div className="contract-search"><label>搜尋永續合約<input aria-label="搜尋永續合約" value={contractQuery} placeholder="例如 WIFUSDT" onFocus={() => setSearchOpen(true)} onChange={(event) => { setContractQuery(event.target.value.toUpperCase()); setSearchOpen(true); }} /></label>{searchOpen && <div className="contract-results">{matchedContracts.length ? matchedContracts.map((item) => <button type="button" key={item.symbol} onMouseDown={() => { setContract(item); setContractQuery(item.symbol); setSearchOpen(false); }}><b>{item.symbol}</b><span>{item.name}</span></button>) : <p>目前訓練清單沒有這個合約</p>}</div>}</div>
+          <div className="single-select"><label>K 線週期<select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}><option>5m</option><option>15m</option><option>1h</option><option>4h</option></select></label></div>
           <div className="divider" />
           <div className="panel-heading compact"><span>02</span><div><h2>風控邊界</h2><p>練習先限制風險，再追求報酬</p></div></div>
           <label>槓桿 <strong className="field-value">{leverage}×</strong><input aria-label="槓桿" type="range" min="1" max="20" value={leverage} onChange={(event) => setLeverage(Number(event.target.value))} /></label>
