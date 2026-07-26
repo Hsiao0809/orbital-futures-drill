@@ -16,13 +16,13 @@ const PROFIT_TARGET = 80;
 const SESSION_LOSS_LIMIT = 50;
 const MAX_DRAWDOWN = 100;
 
-const contracts = [
+const seedContracts = [
   ["BTCUSDT", "Bitcoin"], ["ETHUSDT", "Ethereum"], ["SOLUSDT", "Solana"], ["XRPUSDT", "XRP"], ["DOGEUSDT", "Dogecoin"],
   ["BNBUSDT", "BNB"], ["ADAUSDT", "Cardano"], ["AVAXUSDT", "Avalanche"], ["LINKUSDT", "Chainlink"], ["DOTUSDT", "Polkadot"],
-  ["SUIUSDT", "Sui"], ["HYPEUSDT", "Hyperliquid"], ["ENAUSDT", "Ethena"], ["WIFUSDT", "dogwifhat"], ["PEPEUSDT", "Pepe"],
-  ["FARTCOINUSDT", "Fartcoin"], ["PENGUUSDT", "Pudgy Penguins"], ["BONKUSDT", "Bonk"], ["WLDUSDT", "Worldcoin"], ["ARBUSDT", "Arbitrum"],
+  ["SUIUSDT", "Sui"], ["HYPEUSDT", "Hyperliquid"], ["ENAUSDT", "Ethena"], ["WIFUSDT", "dogwifhat"], ["1000PEPEUSDT", "Pepe"],
+  ["FARTCOINUSDT", "Fartcoin"], ["PENGUUSDT", "Pudgy Penguins"], ["1000BONKUSDT", "Bonk"], ["WLDUSDT", "Worldcoin"], ["ARBUSDT", "Arbitrum"],
   ["OPUSDT", "Optimism"], ["APTUSDT", "Aptos"], ["INJUSDT", "Injective"], ["TIAUSDT", "Celestia"], ["NEARUSDT", "NEAR Protocol"],
-  ["SEIUSDT", "Sei"], ["TONUSDT", "Toncoin"], ["ATOMUSDT", "Cosmos"], ["FILUSDT", "Filecoin"], ["AAVEUSDT", "Aave"],
+  ["SEIUSDT", "Sei"], ["TRXUSDT", "TRON"], ["ATOMUSDT", "Cosmos"], ["FILUSDT", "Filecoin"], ["AAVEUSDT", "Aave"],
   ["1000SHIBUSDT", "Shiba Inu"],
 ].map(([symbol, name]) => ({ symbol, name }));
 
@@ -40,7 +40,8 @@ function roundDate(time?: number) {
 }
 
 export default function Home() {
-  const [contract, setContract] = useState(contracts[0]);
+  const [availableContracts, setAvailableContracts] = useState(seedContracts);
+  const [contract, setContract] = useState(seedContracts[0]);
   const [query, setQuery] = useState("");
   const [timeframe, setTimeframe] = useState("15m");
   const [leverage, setLeverage] = useState(5);
@@ -60,9 +61,16 @@ export default function Home() {
 
   const choices = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    const matches = normalized ? contracts.filter((item) => `${item.symbol} ${item.name}`.toLowerCase().includes(normalized)) : contracts;
+    const matches = normalized ? availableContracts.filter((item) => `${item.symbol} ${item.name}`.toLowerCase().includes(normalized)) : availableContracts;
     return matches.some((item) => item.symbol === contract.symbol) ? matches : [contract, ...matches];
-  }, [query, contract]);
+  }, [query, contract, availableContracts]);
+
+  useEffect(() => {
+    fetch("/api/contracts", { cache: "no-store" })
+      .then(async (response) => response.ok ? response.json() : Promise.reject())
+      .then((payload) => { if (Array.isArray(payload.contracts) && payload.contracts.length) setAvailableContracts(payload.contracts); })
+      .catch(() => undefined);
+  }, []);
 
   const loadRound = useCallback(async () => {
     setStatus("正在載入 Binance 真實歷史 K 線…");
@@ -179,7 +187,7 @@ export default function Home() {
         <aside className="control-panel">
           <div className="panel-heading"><span>01</span><div><h2>選擇合約</h2><p>Binance USDT 永續合約</p></div></div>
           <label>搜尋代號或名稱<input className="symbol-input" value={query} placeholder="例如 WIF 或 Solana" onChange={(event) => setQuery(event.target.value)} /></label>
-          <label>從結果選擇<select value={contract.symbol} onChange={(event) => setContract(contracts.find((item) => item.symbol === event.target.value) || contracts[0])}>{choices.map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol} · {item.name}</option>)}</select></label>
+          <label>從結果選擇<select value={contract.symbol} onChange={(event) => setContract(availableContracts.find((item) => item.symbol === event.target.value) || seedContracts[0])}>{choices.map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol} · {item.name}</option>)}</select></label>
           <label>K 線週期<select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}><option>5m</option><option>15m</option><option>1h</option><option>4h</option></select></label>
           <div className="divider" />
           <div className="panel-heading compact"><span>02</span><div><h2>練習風控</h2><p>只影響模擬 P&L，不會下單</p></div></div>
