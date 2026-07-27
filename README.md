@@ -17,7 +17,7 @@ npm run dev
 
 然後開瀏覽器到 **http://localhost:3000**。
 
-目前沒有公開的線上網址——部署是獨立的發布流程，見下方「發布」。
+要放到雲端讓任何裝置都能開，見下方「[部署到雲端](#部署到雲端)」。
 
 ### 四個頁面
 
@@ -166,10 +166,41 @@ npm run build        # 建置驗證
 npm run lint         # ESLint，應為零錯誤零警告
 ```
 
-### 發布
+---
 
-`npm run dev` 只在本機跑。部署到私有預覽是獨立的發布步驟，
-推上分支或合併 PR **都不等於發布**（見 [AGENTS.md](AGENTS.md)）。
+## 部署到雲端
+
+專案本來就是為 Cloudflare Workers 建置的，`npm run build` 會直接產出可部署的
+worker 設定（`dist/server/wrangler.json`），不需要額外改架構。
+
+### 一次性設定
+
+1. 到 [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens) 建立
+   API Token，套用 **「Edit Cloudflare Workers」** 範本
+2. 在 GitHub repo 的 **Settings → Secrets and variables → Actions** 新增：
+   - `CLOUDFLARE_API_TOKEN` — 上一步的 token
+   - `CLOUDFLARE_ACCOUNT_ID` — 在 Cloudflare 首頁右側可以找到
+
+設定完成後，每次推到 `main` 都會自動部署。網址是：
+
+```
+https://orbital-trainer.<你的-workers-子網域>.workers.dev
+```
+
+### 手動部署
+
+```bash
+npx wrangler login     # 第一次
+npm run deploy
+```
+
+### 注意事項
+
+- **免費方案就夠用。** 目前建置產物約 425 KB（gzip），遠低於 Workers 的容量上限。
+- **Binance 的地區限制。** `/api/klines` 由 worker 端向 Binance 取資料，
+  請求會從離使用者最近的 Cloudflare 節點送出。部分地區的節點會被回 HTTP 451，
+  此時需要行情的題型會顯示明確錯誤，其餘題型不受影響。部署後值得先實測一次。
+- **進度仍存在瀏覽器。** 上雲端不等於跨裝置同步；帳號與同步是後續的工作。
 
 測試使用 Node 22 原生 TypeScript type stripping 直接執行 `.ts`，不需要額外的編譯步驟。
 

@@ -1,0 +1,55 @@
+name: Deploy
+
+# Publishes the trainer to Cloudflare Workers.
+#
+# Until CLOUDFLARE_API_TOKEN is set in the repository secrets this workflow is
+# a no-op that still reports success — an unconfigured deploy must not turn the
+# default branch red.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+
+      - name: Check for deploy credentials
+        id: creds
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy skipped::CLOUDFLARE_API_TOKEN is not set. Add it under Settings → Secrets and variables → Actions to enable deployment."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - run: npm ci
+        if: steps.creds.outputs.ready == 'true'
+      - run: npm run build
+        if: steps.creds.outputs.ready == 'true'
+
+      - name: Publish to Cloudflare Workers
+        if: steps.creds.outputs.ready == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # vinext writes a complete worker config during the build.
+          command: deploy --config dist/server/wrangler.json
