@@ -411,18 +411,45 @@ export function syntheticAccount(
   };
 }
 
-const SIZING_SYMBOLS: Array<{ symbol: string; price: number }> = [
-  { symbol: "BTCUSDT", price: 64000 },
-  { symbol: "ETHUSDT", price: 3100 },
-  { symbol: "SOLUSDT", price: 148 },
-  { symbol: "BNBUSDT", price: 570 },
-  { symbol: "LINKUSDT", price: 14.2 },
-  { symbol: "ARBUSDT", price: 0.82 },
+/**
+ * Reference prices with their tick size. The tick matters: rounding a 0.82
+ * asset to two decimals used to collapse entry and stop onto the same price on
+ * 3% of generated questions, producing an unanswerable scenario whose "correct"
+ * answer was zero for the wrong reason.
+ */
+const SIZING_SYMBOLS: Array<{ symbol: string; price: number; tick: number }> = [
+  { symbol: "BTCUSDT", price: 64000, tick: 0.1 },
+  { symbol: "ETHUSDT", price: 3100, tick: 0.01 },
+  { symbol: "BNBUSDT", price: 570, tick: 0.01 },
+  { symbol: "SOLUSDT", price: 148, tick: 0.01 },
+  { symbol: "AVAXUSDT", price: 27.4, tick: 0.001 },
+  { symbol: "LINKUSDT", price: 14.2, tick: 0.001 },
+  { symbol: "TIAUSDT", price: 5.6, tick: 0.0001 },
+  { symbol: "SUIUSDT", price: 3.4, tick: 0.0001 },
+  { symbol: "XRPUSDT", price: 2.1, tick: 0.0001 },
+  { symbol: "ARBUSDT", price: 0.82, tick: 0.0001 },
+  { symbol: "DOGEUSDT", price: 0.19, tick: 0.00001 },
+  { symbol: "1000PEPEUSDT", price: 0.0092, tick: 0.0000001 },
+];
+
+/** Snap to the instrument's tick, without float dust. */
+function toTick(value: number, tick: number): number {
+  const decimals = Math.max(0, Math.round(-Math.log10(tick)));
+  return Number((Math.round(value / tick) * tick).toFixed(decimals));
+}
+
+const SIZING_RULE_POOL = [
+  "bootcamp-1k",
+  "crypto-2step-p1",
+  "crypto-2step-p2",
+  "crypto-1step-trailing",
+  "crypto-instant-5k",
+  "crypto-eod-trailing",
 ];
 
 export function generateSizing(seed: string, ruleSetId?: string): SizingScenario {
   const rng = createRng(seed);
-  const rules = getRuleSet(ruleSetId ?? pick(rng, ["bootcamp-1k", "crypto-2step-p1", "crypto-1step-trailing"]));
+  const rules = getRuleSet(ruleSetId ?? pick(rng, SIZING_RULE_POOL));
 
   // Put the account somewhere between -3% and +6%, mid-day, with some history.
   const drift = (rng() * 0.09 - 0.03) * rules.initialBalance;
@@ -441,12 +468,19 @@ export function generateSizing(seed: string, ruleSetId?: string): SizingScenario
   });
 
   const market = pick(rng, SIZING_SYMBOLS);
-  const jitter = 1 + (rng() - 0.5) * 0.08;
-  const entry = round(market.price * jitter);
+  const jitter = 1 + (rng() - 0.5) * 0.16;
+  const entry = toTick(market.price * jitter, market.tick);
   const side: Side = rng() > 0.5 ? "LONG" : "SHORT";
-  const stopPct = 0.004 + rng() * 0.016; // 0.4% .. 2.0%
-  const stop = round(side === "LONG" ? entry * (1 - stopPct) : entry * (1 + stopPct));
-  const riskPct = pick(rng, [0.005, 0.0075, 0.01]);
+  const stopPct = 0.003 + rng() * 0.022; // 0.3% .. 2.5%
+  const direction = side === "LONG" ? -1 : 1;
+  // Snap the stop to the tick, then guarantee it is a few ticks clear of entry
+  // so the question always has a finite answer.
+  const rawStop = toTick(entry * (1 + direction * stopPct), market.tick);
+  const stop =
+    Math.abs(rawStop - entry) >= market.tick * 3
+      ? rawStop
+      : toTick(entry + direction * market.tick * 3, market.tick);
+  const riskPct = pick(rng, [0.0025, 0.005, 0.0075, 0.01, 0.0125, 0.015]);
 
   const metrics = evaluate(account, equity);
   const situation =

@@ -307,6 +307,38 @@ test("over-sizing is punished harder than under-sizing by the same margin", () =
   assert.ok(over.score < under.score, `over ${over.score} should be worse than under ${under.score}`);
 });
 
+test("no sizing scenario is degenerate", () => {
+  // Regression: prices were rounded to two decimals regardless of magnitude,
+  // so a 0.82 asset could land entry and stop on the same number. 3% of
+  // generated questions had no finite answer.
+  for (let index = 0; index < 300; index += 1) {
+    const scenario = generateSizing(`degenerate-${index}`);
+    const distance = Math.abs(scenario.entry - scenario.stop);
+    assert.ok(distance > 0, `seed ${index}: entry and stop are both ${scenario.entry}`);
+    const asPct = distance / scenario.entry;
+    assert.ok(asPct > 0.001 && asPct < 0.05, `seed ${index}: implausible stop distance ${(asPct * 100).toFixed(3)}%`);
+    assert.equal(
+      scenario.side === "LONG" ? scenario.stop < scenario.entry : scenario.stop > scenario.entry,
+      true,
+    );
+  }
+});
+
+test("sizing questions vary enough not to feel like the same question", () => {
+  const symbols = new Set<string>();
+  const ruleSets = new Set<string>();
+  const risks = new Set<number>();
+  for (let index = 0; index < 200; index += 1) {
+    const scenario = generateSizing(`variety-${index}`);
+    symbols.add(scenario.symbol);
+    ruleSets.add(scenario.rules.id);
+    risks.add(scenario.riskPct);
+  }
+  assert.ok(symbols.size >= 8, `only ${symbols.size} distinct contracts`);
+  assert.ok(ruleSets.size >= 4, `only ${ruleSets.size} distinct rule sets`);
+  assert.ok(risks.size >= 4, `only ${risks.size} distinct risk budgets`);
+});
+
 test("sizing scenarios are reproducible and stay inside the rule set", () => {
   const a = generateSizing("repeat");
   const b = generateSizing("repeat");
@@ -980,6 +1012,58 @@ test("the daily plan only prescribes unlocked drills and leads with the stage re
   assert.equal(plan[0].drillId, "sizing");
   assert.equal(plan[0].priority, "核心");
   assert.ok(plan.every((item) => item.reason.length > 5));
+});
+
+test("the daily plan never routes a learner back to a mastered drill", () => {
+  // Regression: the reinforcement slot picked a drill by weakest skill without
+  // checking mastery, and a stage's practice list contains earlier stages'
+  // drills. A learner on stage five who stumbled was sent back to 部位計算,
+  // which they had already finished — "redo something you already passed",
+  // from the same generator, as required work.
+  let profile = createProfile();
+  const master = (drillId: string, skill: Parameters<typeof applyDrillOutcome>[1]["skill"]) => {
+    for (let i = 0; i < 4; i += 1) {
+      profile = applyDrillOutcome(profile, { drillId, skill, score: 92, at: Date.now() });
+    }
+  };
+  master("sizing", "SIZING");
+  master("stop", "READ");
+  master("bias", "READ");
+  master("exit", "READ");
+
+  // Then do badly at the current stage, which is what used to drag a rating
+  // down far enough to summon an old drill back into the plan.
+  for (let i = 0; i < 3; i += 1) {
+    profile = applyDrillOutcome(profile, { drillId: "rule-guard", skill: "SIZING", score: 20, at: Date.now() });
+  }
+
+  for (const item of dailyPlan(profile)) {
+    const mastered = Boolean(profile.mastery[item.drillId]?.mastered);
+    if (!mastered) continue;
+    assert.equal(
+      item.priority,
+      "維持",
+      `${item.title} is mastered but was prescribed as ${item.priority}`,
+    );
+  }
+  assert.ok(
+    dailyPlan(profile).some((item) => item.drillId === "rule-guard"),
+    "the plan should still point at the unfinished work",
+  );
+});
+
+test("a stale mastered drill is offered only as optional maintenance", () => {
+  let profile = createProfile();
+  for (let i = 0; i < 4; i += 1) {
+    profile = applyDrillOutcome(profile, { drillId: "sizing", skill: "SIZING", score: 92, at: Date.now() });
+  }
+  // Fresh: no reason to revisit it.
+  assert.ok(!dailyPlan(profile).some((item) => item.drillId === "sizing"));
+
+  const old = { ...profile.mastery.sizing, lastAttemptAt: Date.now() - 30 * 86_400_000 };
+  const stale: ProgressProfile = { ...profile, mastery: { ...profile.mastery, sizing: old } };
+  const item = dailyPlan(stale).find((entry) => entry.drillId === "sizing");
+  if (item) assert.equal(item.priority, "維持");
 });
 
 test("the daily plan respects its size cap and never repeats a drill", () => {

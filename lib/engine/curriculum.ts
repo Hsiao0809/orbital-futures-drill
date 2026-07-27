@@ -7,7 +7,7 @@
 // reading on purpose.
 
 import { DRILLS, getDrill } from "./drills.ts";
-import { MASTERY_THRESHOLD, SKILLS } from "./scoring.ts";
+import { MASTERY_STREAK, MASTERY_THRESHOLD, SKILLS } from "./scoring.ts";
 import type { ProgressProfile, SkillId, SkillVector } from "./types.ts";
 
 export type Stage = {
@@ -189,13 +189,23 @@ export type PlanItem = {
 };
 
 /**
- * Today's practice. Weighted toward the current stage's required drills, then
- * toward the weakest competency, then a maintenance rep of something already
- * mastered so it does not decay.
+ * Today's practice.
+ *
+ * The one rule: never send a learner backwards. A drill that has been mastered
+ * is finished, and prescribing it again as work — because a rating dipped, or
+ * because an earlier drill happens to appear in this stage's practice list —
+ * reads as "you have to redo something you already passed", which is both
+ * demoralising and, since the questions come from the same generator, largely
+ * a waste of time.
+ *
+ * So every slot prefers unmastered work. Revisiting a mastered drill survives
+ * only as an explicitly optional maintenance rep, and only once it has gone
+ * genuinely stale.
  */
 export function dailyPlan(profile: ProgressProfile, max = 4): PlanItem[] {
   const stage = currentStage(profile);
   const available = new Set(unlockedDrills(profile));
+  const mastered = (drillId: string) => Boolean(profile.mastery[drillId]?.mastered);
   const items: PlanItem[] = [];
   const used = new Set<string>();
 
@@ -205,42 +215,50 @@ export function dailyPlan(profile: ProgressProfile, max = 4): PlanItem[] {
     items.push({ drillId, title: getDrill(drillId).title, reps, reason, priority });
   };
 
-  // 1. Whatever the current stage requires.
+  // 1. What this stage still needs.
   for (const drillId of stage.stage.required) {
+    if (mastered(drillId)) continue;
     const record = profile.mastery[drillId];
-    const remaining = record?.mastered ? 0 : Math.max(1, 3 - (record?.streak ?? 0));
-    if (remaining > 0) {
-      add(
-        drillId,
-        remaining,
-        record
-          ? `本階段必修。連續達標 ${record.streak}/3 次（需 ${MASTERY_THRESHOLD} 分以上）。`
-          : "本階段必修，尚未開始。",
-        "核心",
-      );
-    }
+    add(
+      drillId,
+      Math.max(1, MASTERY_STREAK - (record?.streak ?? 0)),
+      record
+        ? `本階段必修。連續達標 ${record.streak}/${MASTERY_STREAK} 次（需 ${MASTERY_THRESHOLD} 分以上）。`
+        : "本階段必修，尚未開始。",
+      "核心",
+    );
   }
 
-  // 2. The weakest competency that has an unlocked drill.
+  // 2. The weakest competency that still has unfinished work behind it. Skills
+  //    whose drills are all mastered are skipped rather than looped back to.
   const weakest = [...SKILLS]
     .map((skill) => ({ skill, rating: profile.skills[skill.id] }))
     .sort((a, b) => a.rating - b.rating);
   for (const { skill, rating } of weakest) {
-    const drill = DRILLS.find((item) => item.skill === skill.id && available.has(item.id) && !used.has(item.id));
+    const drill = DRILLS.find(
+      (item) => item.skill === skill.id && available.has(item.id) && !used.has(item.id) && !mastered(item.id),
+    );
     if (drill) {
-      add(drill.id, 2, `「${skill.label}」是目前最弱的一項（${rating.toFixed(0)} 分），這個項目直接練它。`, "補強");
+      add(drill.id, 2, `「${skill.label}」目前是最弱的一項（${rating.toFixed(0)} 分），這個項目直接練它。`, "補強");
       break;
     }
   }
 
-  // 3. Stage practice drills, then maintenance on mastered ones.
+  // 3. Anything else in this stage that is not finished yet.
   for (const drillId of stage.stage.drills) {
+    if (mastered(drillId)) continue;
     add(drillId, 1, "本階段的搭配練習。", "維持");
   }
-  for (const [drillId, record] of Object.entries(profile.mastery)) {
-    if (!record.mastered) continue;
-    const stale = Date.now() - record.lastAttemptAt > 5 * 86_400_000;
-    if (stale) add(drillId, 1, "已精熟但超過 5 天沒練，做一次維持手感。", "維持");
+
+  // 4. Only now, and only if a mastered drill has gone properly stale, offer a
+  //    single optional refresher. Never as required work.
+  if (items.length < max) {
+    const stale = Object.entries(profile.mastery)
+      .filter(([drillId, record]) =>
+        record.mastered && available.has(drillId) && !used.has(drillId) &&
+        Date.now() - record.lastAttemptAt > 10 * 86_400_000)
+      .sort((a, b) => a[1].lastAttemptAt - b[1].lastAttemptAt)[0];
+    if (stale) add(stale[0], 1, "已精熟超過 10 天沒碰，想的話可以做一題維持手感。不做也不影響進度。", "維持");
   }
 
   return items;
