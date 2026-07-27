@@ -20,6 +20,7 @@ const PROFIT_TARGET = 80;
 const SESSION_LOSS_LIMIT = 50;
 const TAKER_FEE_RATE = 0.0004;
 const SLIPPAGE_RATE = 0.0002;
+const DEFAULT_LEVERAGE = 5;
 
 const seedContracts = [
   ["BTCUSDT", "Bitcoin"], ["ETHUSDT", "Ethereum"], ["SOLUSDT", "Solana"], ["XRPUSDT", "XRP"], ["DOGEUSDT", "Dogecoin"],
@@ -61,7 +62,6 @@ export default function Home() {
   const [contract, setContract] = useState(seedContracts[0]);
   const [query, setQuery] = useState("");
   const [timeframe, setTimeframe] = useState("15m");
-  const [leverage, setLeverage] = useState(5);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [visible, setVisible] = useState(CONTEXT_BARS);
   const [side, setSide] = useState<Side>(null);
@@ -185,7 +185,7 @@ export default function Home() {
         setLog((items) => [`續抱 ${choice}；可同時保留另一方向的避險部位。`, ...items].slice(0, 4));
         return;
       }
-      setTradePlan({ side: choice, stopPct: 0.8, leverage, margin: MARGIN_PER_POSITION });
+      setTradePlan({ side: choice, stopPct: 0.8, leverage: DEFAULT_LEVERAGE, margin: MARGIN_PER_POSITION });
       setSide(null);
       setLog((items) => [`設定 ${choice} 進場計畫：可與既有 ${positions.length ? "反向" : ""}部位同時持有。`, ...items].slice(0, 4));
       return;
@@ -338,9 +338,8 @@ export default function Home() {
           <label>K 線週期<select value={timeframe} onChange={(event) => setTimeframe(event.target.value)}><option>5m</option><option>15m</option><option>1h</option><option>4h</option></select></label>
           <div className="divider" />
           <div className="panel-heading compact"><span>02</span><div><h2>練習風控</h2><p>只影響模擬 P&amp;L，不會下單</p></div></div>
-          <label>槓桿 <strong className="field-value">{leverage}×</strong><input aria-label="槓桿" type="range" min="1" max="20" value={leverage} onChange={(event) => setLeverage(Number(event.target.value))} /></label>
-          <div className="risk-box"><div><span>挑戰目標</span><b>+8%</b></div><div><span>本局上限</span><b>−5%</b></div></div>
-          <p className="micro-note">起始 1,000 U。進場計畫會納入滑價與 0.04% taker 手續費；紀律從 100 分開始，只在過度風險或追價時扣分。</p>
+          <div className="risk-box"><div><span>實際槓桿</span><b>交易計畫設定</b></div><div><span>每筆停損</span><b>必填</b></div></div>
+          <p className="micro-note">起始 1,000 U。槓桿只在右側「交易計畫」設定，進場會納入滑價與 0.04% taker 手續費。</p>
         </aside>
 
         <section className="chart-panel">
