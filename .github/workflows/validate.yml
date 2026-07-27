@@ -15,7 +15,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # The engine tests run TypeScript directly via Node's type stripping,
+          # which needs 22.18 or newer.
+          node-version: "22.x"
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
       - run: npm run build

@@ -1,115 +1,145 @@
-# ORBITAL Futures Drill
+# ORBITAL · Prop 考試訓練系統
 
-A paper-only training product for USDT perpetual futures. Pick a real Binance
-USDⓈ-M perpetual contract, make a long, short, or wait decision with future
-candles hidden, then reveal the tape and learn from the outcome. It does not
-connect to exchanges or place orders.
+用真實歷史 K 線與精確還原的 prop firm 規則引擎，訓練通過考試所需的**風險控制與決策紀律**。
 
-## Product principles
+純模擬工具。不連接交易所、不執行下單、不提供交易訊號，也不對任何考試結果或獲利做出保證。
 
-- Real historical K-line data, with future candles hidden.
-- A simulated prop-style account, transparent P&L, fees, and slippage.
-- Decision feedback that teaches market structure and risk discipline.
-- No trading signals, live execution, or profit promises.
+---
 
-## Collaboration
+## 這個產品的核心判斷
 
-This repository is the collaboration source of truth for Codex and Claude.
-Work on a feature branch and open a pull request into `main`; see
-[AGENTS.md](AGENTS.md) for the non-negotiable product and validation rules.
+Prop firm 考試淘汰人的，幾乎從來不是「看錯方向」。
 
-The deployed preview is a separate release step. A branch or pull request is
-not production.
+真正讓帳戶出局的是：**日虧損上限被觸發、最大回撤被觸發、部位開太大、虧損後報復性加碼、
+獲利集中在單日違反一致性條款**。這些全部是風控與行為問題，不是預測問題。
 
-## Prerequisites
+所以本系統刻意不做「猜下一根 K 線」這件事——那是擲硬幣，練再多也不會提升。
+系統的評分核心是規則引擎，訓練的是在限額壓力下做出不違規的決策。
 
-- Node.js `>=22.13.0`
+一句話版本：**花時間在這裡失敗，不要花考試費去失敗。**
 
-## Quick Start
+---
+
+## 系統架構
+
+```
+lib/engine/          純函式領域核心（無依賴、可單元測試、前後端共用）
+  types.ts           領域型別
+  rng.ts             種子化亂數（情境可重現、可分享）
+  indicators.ts      ATR、結構辨識、路徑感知的前瞻結果判定
+  propRules.ts       規則檔預設與即時風險預算計算  ← 護城河
+  sizing.ts          部位計算與「可辯護風險上限」
+  account.ts         帳戶模擬：成交、費用、資金費、強平、跨日結算
+  diagnostics.ts     行為診斷（11 種會讓帳戶出局的模式）
+  scoring.ts         五維能力值、XP、等級、精熟制
+  curriculum.ts      七階訓練階梯與每日菜單
+
+app/                 Next.js（vinext / Cloudflare Workers）
+  page.tsx           儀表板：準備度、今日菜單、能力雷達、階梯
+  train/             訓練中心與六種題型的執行器
+  exam/              完整考試模擬器
+  journal/           交易紀錄與行為診斷報告
+  api/               K 線代理、合約清單、進度同步
+
+tests/               node --test，105 項測試涵蓋整個引擎
+```
+
+---
+
+## 規則引擎建模了什麼
+
+這是市面上訓練工具普遍沒做對的部分。
+
+| 面向 | 支援的模式 |
+|---|---|
+| **回撤模式** | 靜態（固定於初始資金下方）／盤中權益追蹤（永不凍結）／日結餘額追蹤／追蹤至損益兩平後凍結 |
+| **日虧損基準** | 以初始資金／當日起始權益／當日起始餘額計算 |
+| **未實現損益** | 可設定是否計入上限——很多人死在「沒平倉就不算虧」這個誤解 |
+| **一致性條款** | 單日獲利佔總獲利比例上限 |
+| **交易日條件** | 最低交易日、最低獲利日（含單日最低獲利門檻） |
+| **成本模型** | taker 手續費、依波動度縮放的滑價、8 小時資金費、維持保證金強平 |
+
+內建六個規則檔，從寬鬆的新手訓練營到最嚴格的盤中追蹤回撤。這些是**規則結構的訓練檔**，
+不是任何一家業者當前條款的複製——各家條款會變動，請以你實際要考的業者公告為準。
+
+### 刻意的悲觀假設
+
+任何模稜兩可的地方，一律往對交易者不利的方向解讀：
+
+- 同一根 K 線同時觸及停損與停利 → **判定停損先成交**（OHLC 無法還原盤中順序）
+- 跳空穿過停損 → **以開盤價成交**，不是停損價（所以虧損會超過 1R）
+- 限額判定用**當根 K 線的最差權益**，不是收盤價——真實程式會在影線上就砍掉你
+- 部位計算把**進出兩次手續費**都算進風險，否則緊停損的實際風險會被低估
+
+會奉承你的訓練工具，比沒有訓練工具更糟。
+
+---
+
+## 六種題型
+
+| 題型 | 訓練 | 客觀評分方式 |
+|---|---|---|
+| **方向判讀** | 結構閱讀 | 一段行情內先走到 +1 ATR 還是 −1 ATR（路徑感知），另計信心校準 |
+| **部位計算** | 風險換算 | 與唯一數學正解比對；**高估的扣分重於低估** |
+| **停損放置** | 無效化邏輯 | 結構依據 35 分＋抗雜訊 40 分＋效率 25 分 |
+| **出場管理** | 續抱與了結 | 實得 R 與該段行情理論最佳 R 的擷取率 |
+| **規則守門** | 限額下決策 | 所有數字由規則引擎即時計算，無法背答案 |
+| **情緒控制** | 連虧／連勝後行為 | 選出唯一同時滿足規則與風控的動作 |
+
+---
+
+## 行為診斷
+
+考試結束後，系統從交易紀錄中偵測並命名具體壞習慣，每一項都附帶證據數字與修正建議：
+
+無停損進場 · 部位超額 · 報復性交易 · 連虧加碼螺旋 · 過度交易 · 外移停損 ·
+獲利抱不住 · 虧損超出事前風險 · 在限額邊緣下注 · 達標後繼續交易 · 獲利過度集中於單日
+
+「你虧了 4%」沒有可執行性；「你在兩次虧損之後把部位放大了三倍，這在三個交易日內出現過」有。
+
+---
+
+## 遊戲化設計
+
+不是集點，是**有牙齒的關卡制**：
+
+- **五維能力值**（判讀／計算／紀律／耐心／一致性）以 EWMA 更新，單次失常不會歸零，但也不會只漲不跌
+- **精熟制**：連續三次 80 分以上才算通過，防止運氣過關
+- **階梯解鎖**：能力值與精熟未達門檻，下一階不開放。風控機制排在行情判讀**之前**是刻意的
+- **考試準備度**：明確標示為訓練完成度，**不是通過機率**——沒有任何系統能預測真實考試結果
+
+---
+
+## 開發
+
+需要 Node.js `>=22.13.0`。
 
 ```bash
 npm install
-npx vinext dev
-npx vinext build
+npm run dev          # 本機開發
+npm test             # 引擎單元測試（105 項）
+npm run build        # 建置驗證
+npm run lint         # ESLint
 ```
 
-This starter does not use `wrangler.jsonc`.
+測試使用 Node 22 原生 TypeScript type stripping 直接執行 `.ts`，不需要額外的編譯步驟。
 
-## Included Shape
+### 資料來源
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+歷史 K 線來自 Binance USDⓈ-M 永續合約公開 API，經由本站的 `/api/klines` 代理。
+最新一根未完成的 K 線一律丟棄，避免洩漏尚未產生的資訊。
 
-## Workspace Auth Headers
+部分地區的 IP 會被 Binance 以 HTTP 451 拒絕。此時需要行情資料的題型（方向判讀、
+停損放置、出場管理）與考試模擬會顯示明確錯誤訊息；不需要行情的題型
+（部位計算、規則守門、情緒控制）完全不受影響。
 
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
+### 資料儲存
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
+進度採 local-first：`localStorage` 是真實來源，`/api/profile` 的 D1 同步只是備份。
+沒有資料庫、沒有登入也能完整使用；同步失敗不影響訓練。
 
-Treat the full name as optional and fall back to email when it is absent:
+---
 
-```tsx
-import { headers } from "next/headers";
+## 產品與商業規劃
 
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+見 [docs/STRATEGY.md](docs/STRATEGY.md)。目前尚未實作付費機制，但資料模型與權限接縫已預留。
