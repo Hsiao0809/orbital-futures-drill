@@ -191,7 +191,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       <section className="topbar">
-        <div className="brand"><span className="brand-mark">◈</span><span>ORBITAL</span><em>FUTURES DRILL</em></div>
+        <div className="brand"><span className="brand-mark">◈</span><span>ORBITAL</span><em>FUTURES DRILL</em><span className="brand-training">USDT 永續合約盤感訓練</span></div>
         <div className="mode-pill"><span className="mode-dot" />PROP CHALLENGE · 真實歷史資料</div>
         <button className="ghost-button" onClick={() => setRoundKey((value) => value + 1)}>換一局</button>
       </section>
