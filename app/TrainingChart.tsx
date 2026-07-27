@@ -4,6 +4,7 @@ import { CandlestickSeries, ColorType, createChart, type IChartApi, type UTCTime
 import { useEffect, useRef, useState } from "react";
 
 type Candle = { time: number; open: number; high: number; low: number; close: number };
+const FUTURE_GAP_PX = 120;
 
 export default function TrainingChart({ candles, visible, loading }: { candles: Candle[]; visible: number; loading: boolean }) {
   const host = useRef<HTMLDivElement>(null);
@@ -12,7 +13,7 @@ export default function TrainingChart({ candles, visible, loading }: { candles: 
 
   useEffect(() => {
     if (!host.current) return;
-    const chart = createChart(host.current, { width: host.current.clientWidth, height: host.current.clientHeight, layout: { background: { type: ColorType.Solid, color: "#0d1117" }, textColor: "#87909b" }, grid: { vertLines: { color: "rgba(255,255,255,0.035)" }, horzLines: { color: "rgba(255,255,255,0.055)" } }, rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" }, timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: true, barSpacing }, handleScale: true, handleScroll: true, crosshair: { vertLine: { color: "rgba(200,244,102,0.35)" }, horzLine: { color: "rgba(200,244,102,0.25)" } } });
+    const chart = createChart(host.current, { width: host.current.clientWidth, height: host.current.clientHeight, layout: { background: { type: ColorType.Solid, color: "#0d1117" }, textColor: "#87909b" }, grid: { vertLines: { color: "rgba(255,255,255,0.035)" }, horzLines: { color: "rgba(255,255,255,0.055)" } }, rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" }, timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: true, barSpacing, rightOffsetPixels: FUTURE_GAP_PX }, handleScale: true, handleScroll: true, crosshair: { vertLine: { color: "rgba(200,244,102,0.35)" }, horzLine: { color: "rgba(200,244,102,0.25)" } } });
     chartRef.current = chart;
     const series = chart.addSeries(CandlestickSeries, { upColor: "#6ee7b7", downColor: "#f26c7c", borderUpColor: "#6ee7b7", borderDownColor: "#f26c7c", wickUpColor: "#6ee7b7", wickDownColor: "#f26c7c" });
     series.setData(candles.slice(0, visible).map((candle) => ({ ...candle, time: Math.floor(candle.time / 1000) as UTCTimestamp })));
