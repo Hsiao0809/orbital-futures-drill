@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Chart, { type PriceLine } from "@/app/components/Chart";
 import GradeCard from "@/app/components/GradeCard";
 import { BiasPanel, ChoicePanel, ExitPanel, SizingPanel, StopPanel } from "./panels";
 import { useProfile } from "@/lib/store/profile.ts";
@@ -17,6 +18,7 @@ import {
   generateStop,
   getDrill,
   gradeScenario,
+  suggestStop,
   type AnyAnswer,
   type Grade,
   type Scenario,
@@ -28,7 +30,13 @@ import type { Candle, Interval } from "@/lib/engine/types.ts";
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "LINKUSDT", "AVAXUSDT"];
 
 type MarketData = { key: string; candles: Candle[]; error: string | null };
-type Answered = { round: number; grade: Grade; chosenId: string | null };
+type Answered = {
+  round: number;
+  grade: Grade;
+  chosenId: string | null;
+  /** Kept so the reveal can draw what the learner actually chose. */
+  answer: AnyAnswer;
+};
 
 export default function DrillRunner() {
   const params = useParams<{ drill: string }>();
@@ -97,6 +105,7 @@ export default function DrillRunner() {
       setAnswered({
         round,
         grade,
+        answer,
         chosenId:
           answer.kind === "RULE_GUARD" || answer.kind === "TILT" ? answer.value.choiceId : null,
       });
@@ -118,6 +127,44 @@ export default function DrillRunner() {
   );
 
   const nextRound = useCallback(() => setRound((value) => value + 1), []);
+
+  /**
+   * Lines for the revealed chart. Seeing which side the tape actually took —
+   * and where your own level sat relative to it — is the entire lesson; a
+   * score with the chart taken away teaches nothing.
+   */
+  const revealLines = useMemo((): PriceLine[] => {
+    if (!scenario || !current) return [];
+    if (scenario.kind === "BIAS") {
+      const anchor = scenario.candles[scenario.visibleCount - 1].close;
+      return [
+        { price: anchor, label: "決策點", color: "#cdf571" },
+        { price: anchor + scenario.atr, label: "+1 ATR", color: "#7cebc0", dashed: true },
+        { price: anchor - scenario.atr, label: "−1 ATR", color: "#fa7e8b", dashed: true },
+      ];
+    }
+    if (scenario.kind === "STOP") {
+      const suggested = suggestStop(scenario);
+      const mine = current.answer.kind === "STOP" ? current.answer.value.stop : scenario.entry;
+      return [
+        { price: scenario.entry, label: "進場", color: "#cdf571" },
+        { price: mine, label: "你的停損", color: "#fa7e8b", dashed: true },
+        { price: suggested.price, label: "建議停損", color: "#7cebc0", dashed: true },
+      ];
+    }
+    if (scenario.kind === "EXIT") {
+      return [
+        { price: scenario.entry, label: "進場", color: "#cdf571" },
+        { price: scenario.stop, label: "停損", color: "#fa7e8b", dashed: true },
+      ];
+    }
+    return [];
+  }, [scenario, current]);
+
+  const marketScenario =
+    scenario && (scenario.kind === "BIAS" || scenario.kind === "STOP" || scenario.kind === "EXIT")
+      ? scenario
+      : null;
 
   if (!ready) {
     return (
@@ -254,9 +301,23 @@ export default function DrillRunner() {
       )}
 
       {current ? (
-        <div className="grow pane">
-          <GradeCard grade={current.grade} onNext={nextRound} nextLabel="下一題" recorded={!locked} />
-        </div>
+        marketScenario ? (
+          // Reveal the hidden candles next to the verdict.
+          <div className="split">
+            <Chart
+              candles={marketScenario.candles}
+              visible={marketScenario.candles.length}
+              lines={revealLines}
+              futureGapPx={16}
+              fill
+            />
+            <GradeCard grade={current.grade} onNext={nextRound} nextLabel="下一題" recorded={!locked} />
+          </div>
+        ) : (
+          <div className="grow pane">
+            <GradeCard grade={current.grade} onNext={nextRound} nextLabel="下一題" recorded={!locked} />
+          </div>
+        )
       ) : loadingMarket ? (
         <div className="empty grow">
           <p>正在載入真實歷史 K 線…</p>

@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import Chart, { type PriceLine } from "@/app/components/Chart";
 import { evaluate } from "@/lib/engine/propRules.ts";
 import RiskHud from "@/app/components/RiskHud";
+import { invalidationLevel, observableNoise } from "@/lib/engine/drills.ts";
 import type {
   AnyAnswer,
   BiasScenario,
@@ -17,7 +18,7 @@ import type {
 } from "@/lib/engine/drills.ts";
 import type { Side } from "@/lib/engine/types.ts";
 
-const COLOURS = { entry: "#c8f466", stop: "#f26c7c", target: "#6ee7b7" };
+const COLOURS = { entry: "#cdf571", stop: "#fa7e8b", target: "#7cebc0", noise: "#ffca75", level: "#8ab4ff" };
 
 function fmt(value: number, digits = 4): string {
   if (!Number.isFinite(value)) return "—";
@@ -155,8 +156,21 @@ export function StopPanel({
   const direction = scenario.side === "LONG" ? -1 : 1;
   const stop = scenario.entry + direction * scenario.atr * atrUnits;
 
+  // Both of these are graded, so both have to be on screen before answering.
+  // Recent noise is observable — it is how far single bars have actually been
+  // swinging against this side lately. Whether *this* move sweeps you is not
+  // observable, and is deliberately not graded.
+  const noise = observableNoise(scenario);
+  const noiseEdge = scenario.entry + direction * scenario.atr * noise;
+  const level = invalidationLevel(scenario);
+  const insideNoise = atrUnits < noise;
+
   const lines: PriceLine[] = [
     { price: scenario.entry, label: "進場", color: COLOURS.entry },
+    { price: noiseEdge, label: "雜訊邊界", color: COLOURS.noise, dashed: true },
+    ...(level !== undefined
+      ? [{ price: level, label: "結構", color: COLOURS.level, dashed: true }]
+      : []),
     { price: stop, label: "停損", color: COLOURS.stop, dashed: true },
   ];
 
@@ -221,8 +235,31 @@ export function StopPanel({
               </b>
             </div>
           </div>
+          <div className={`banner ${insideNoise ? "bad" : "info"}`}>
+            <span>{insideNoise ? "✕" : "✓"}</span>
+            <span>
+              {insideNoise
+                ? `這個位置在雜訊邊界之內。近期單根 K 線最大逆向甩動就有 ${noise.toFixed(2)} ATR，放這裡等於自願被掃。`
+                : `這個位置在雜訊邊界之外（近期單根最大逆向 ${noise.toFixed(2)} ATR），一般波動掃不到。`}
+            </span>
+          </div>
+
+          <div className="grid-2">
+            <div className="stat stat-sm">
+              <span>近期雜訊</span>
+              <b className="num">{noise.toFixed(2)} ATR</b>
+              <i>單根最大逆向 · 可觀察</i>
+            </div>
+            <div className="stat stat-sm">
+              <span>最近結構{scenario.side === "LONG" ? "低點" : "高點"}</span>
+              <b className="num">{level === undefined ? "—" : fmt(level)}</b>
+              <i>{level === undefined ? "這段沒有明顯結構點" : "看錯的判定位置"}</i>
+            </div>
+          </div>
+
           <p className="tiny">
-            ATR = {fmt(scenario.atr)}。這是近期單根 K 線的平均真實波幅。
+            評分只看你現在看得到的東西：停損有沒有放在結構之外、有沒有蓋過雜訊邊界、
+            以及會不會寬到讓部位失去意義。<b>這一次會不會剛好被掃到不列入評分</b>——那是運氣，不是判斷。
           </p>
 
           <button

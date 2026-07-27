@@ -626,7 +626,7 @@ export function observableNoise(scenario: StopScenario, lookback = 20): number {
 }
 
 /** Nearest swing level the stop should sit behind, if the window has one. */
-function invalidationLevel(scenario: StopScenario): number | undefined {
+export function invalidationLevel(scenario: StopScenario): number | undefined {
   const window = scenario.candles.slice(0, scenario.visibleCount);
   const points = swingPoints(window, 2);
   return scenario.side === "LONG"
