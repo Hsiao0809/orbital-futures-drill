@@ -15,7 +15,7 @@
 }
 
 @media (min-width:821px) and (max-height:650px) {
-  .app-shell { padding:10px 14px !important; grid-template-rows:auto auto minmax(0,1fr) !important; gap:7px !important; }
+  .app-shell { padding:10px 14px !important; grid-template-rows:auto minmax(0,1fr) !important; gap:7px !important; }
   .topbar { padding-bottom:7px !important; }
   .intro-copy,.bottom-grid,.micro-note { display:none !important; }
   .intro h1 { font-size:24px !important; }
@@ -49,7 +49,7 @@
 body { margin:0; background:#090b0f; color:var(--ink); font-family:Arial, Helvetica, sans-serif; overflow:hidden; }
 button,select,textarea,input { font:inherit; }
 button { cursor:pointer; }
-.app-shell { height:100vh; max-width:1540px; margin:auto; padding:16px 28px; display:grid; grid-template-rows:auto auto minmax(0,1fr) 116px; gap:11px; background:radial-gradient(circle at 82% 0%,rgba(200,244,102,.08),transparent 27%),linear-gradient(160deg,#0d1015 0%,#090b0f 66%); }
+.app-shell { height:100vh; max-width:1540px; margin:auto; padding:16px 28px; display:grid; grid-template-rows:auto minmax(0,1fr) 116px; gap:11px; background:radial-gradient(circle at 82% 0%,rgba(200,244,102,.08),transparent 27%),linear-gradient(160deg,#0d1015 0%,#090b0f 66%); }
 .topbar { display:flex; align-items:center; justify-content:space-between; gap:18px; border-bottom:1px solid var(--line); padding-bottom:13px; }
 .brand { letter-spacing:.12em; font-size:14px; font-weight:800; display:flex; align-items:center; gap:9px; }.brand-mark { color:var(--lime); font-size:24px; line-height:0; }.brand em { color:#69707a; font-size:10px; font-style:normal; letter-spacing:.16em; border-left:1px solid var(--line); padding-left:10px; }.brand-training { color:#aeb5bc; font-size:10px; font-weight:600; letter-spacing:.02em; border-left:1px solid var(--line); padding-left:10px; white-space:nowrap; }
 .mode-pill { margin-left:auto; color:#adb2b8; font-size:12px; }.mode-dot { display:inline-block; width:7px; height:7px; background:var(--lime); border-radius:50%; box-shadow:0 0 12px var(--lime); margin-right:7px; }.ghost-button { background:transparent; color:#c9cdd2; border:1px solid #333942; padding:9px 13px; border-radius:7px; font-size:12px; }

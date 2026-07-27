@@ -196,11 +196,6 @@ export default function Home() {
         <button className="ghost-button" onClick={() => setRoundKey((value) => value + 1)}>換一局</button>
       </section>
 
-      <section className="intro compact-intro">
-        <div><p className="eyebrow">CRYPTO PERPETUAL TRAINING</p><h1>USDT 永續合約盤感訓練</h1><p className="intro-copy">真實已收線 K 線、未來鎖定、逐根揭露。每局完成後才看完整結果。</p></div>
-        <div className="streak-card"><span>Prop 挑戰進度</span><strong>{turnsComplete}<small> / {ROUND_BARS}</small></strong><p>目標 +8% · 上限 −5%</p><div className="tiny-bars"><b className="active" /><b className="active" /><b className="active" /><b /><b /><b /><b /></div></div>
-      </section>
-
       <section className="training-grid">
         <aside className="control-panel">
           <div className="panel-heading"><span>01</span><div><h2>選擇合約</h2><p>Binance USDT 永續合約</p></div></div>
