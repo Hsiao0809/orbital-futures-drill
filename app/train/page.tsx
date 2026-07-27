@@ -51,7 +51,7 @@ export default function TrainHub() {
                 ) : open ? (
                   <span className="pill pill-lime">{drill.seconds} 秒 / 題</span>
                 ) : (
-                  <span className="pill pill-mute">🔒 未解鎖</span>
+                  <span className="pill pill-mute">🔒 未解鎖 · 可試做</span>
                 )}
               </div>
               <div className="row">
@@ -82,14 +82,18 @@ export default function TrainHub() {
             </>
           );
 
-          return open ? (
-            <Link key={drill.id} href={`/train/${drill.id}`} className="card drill-card">
+          // Locked drills stay clickable. The lock governs whether an attempt
+          // counts toward progression, not whether you may look at it — a wall
+          // of padlocks with nothing behind it teaches a new learner nothing
+          // about what they are being asked to work toward.
+          return (
+            <Link
+              key={drill.id}
+              href={`/train/${drill.id}`}
+              className={`card drill-card${open ? "" : " locked"}`}
+            >
               {card}
             </Link>
-          ) : (
-            <div key={drill.id} className="card drill-card locked">
-              {card}
-            </div>
           );
         })}
       </section>

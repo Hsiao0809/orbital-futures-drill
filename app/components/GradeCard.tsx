@@ -13,10 +13,13 @@ export default function GradeCard({
   grade,
   onNext,
   nextLabel = "下一題",
+  recorded = true,
 }: {
   grade: Grade;
   onNext: () => void;
   nextLabel?: string;
+  /** False for a try-out of a locked drill, where nothing is stored. */
+  recorded?: boolean;
 }) {
   return (
     <div className="card stack">
@@ -25,8 +28,11 @@ export default function GradeCard({
         <div>
           <p className="eyebrow">評分結果</p>
           <h2>{grade.verdict}</h2>
+          {/* Never promise XP for a try-out — the banner above already says
+              nothing is recorded, and two contradictory claims on one screen
+              is worse than either message alone. */}
           <p className="tiny">
-            +{drillXp(grade.score)} XP ·{" "}
+            {recorded ? `+${drillXp(grade.score)} XP · ` : "試做，未計入進度 · "}
             {grade.score >= MASTERY_THRESHOLD
               ? `達到精熟門檻（${MASTERY_THRESHOLD} 分）`
               : `距離精熟門檻還差 ${Math.ceil(MASTERY_THRESHOLD - grade.score)} 分`}

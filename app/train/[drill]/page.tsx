@@ -22,7 +22,7 @@ import {
   type Scenario,
 } from "@/lib/engine/drills.ts";
 import { MASTERY_STREAK, MASTERY_THRESHOLD, applyDrillOutcome } from "@/lib/engine/scoring.ts";
-import { unlockedDrills } from "@/lib/engine/curriculum.ts";
+import { stageStates, unlockedDrills } from "@/lib/engine/curriculum.ts";
 import type { Candle, Interval } from "@/lib/engine/types.ts";
 
 const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "LINKUSDT", "AVAXUSDT"];
@@ -42,6 +42,13 @@ export default function DrillRunner() {
   const [data, setData] = useState<MarketData | null>(null);
   const [answered, setAnswered] = useState<Answered | null>(null);
   const [session, setSession] = useState({ attempts: 0, total: 0 });
+  /** Trying out a locked drill: fully graded, but nothing is recorded. */
+  const [preview, setPreview] = useState(false);
+
+  const locked = useMemo(
+    () => ready && !unlockedDrills(profile).includes(meta.id),
+    [ready, profile, meta.id],
+  );
 
   // One stable seed per drill and round. `null` until the client mounts.
   const seed = useSeed(`${drillId}:${round}`);
@@ -94,16 +101,20 @@ export default function DrillRunner() {
           answer.kind === "RULE_GUARD" || answer.kind === "TILT" ? answer.value.choiceId : null,
       });
       setSession((state) => ({ attempts: state.attempts + 1, total: state.total + grade.score }));
-      update((state) =>
-        applyDrillOutcome(state, {
-          drillId: meta.id,
-          skill: meta.skill,
-          score: grade.score,
-          at: Date.now(),
-        }),
-      );
+      // A try-out of a locked drill is graded in full but must not move any
+      // rating, or the ladder's ordering would mean nothing.
+      if (!locked) {
+        update((state) =>
+          applyDrillOutcome(state, {
+            drillId: meta.id,
+            skill: meta.skill,
+            score: grade.score,
+            at: Date.now(),
+          }),
+        );
+      }
     },
-    [scenario, current, round, update, meta.id, meta.skill],
+    [scenario, current, round, update, meta.id, meta.skill, locked],
   );
 
   const nextRound = useCallback(() => setRound((value) => value + 1), []);
@@ -116,19 +127,37 @@ export default function DrillRunner() {
     );
   }
 
-  if (!unlockedDrills(profile).includes(meta.id)) {
+  if (locked && !preview) {
+    const gate = stageStates(profile).find((state) => state.stage.drills.includes(meta.id));
     return (
       <main className="stack">
         <div className="card stack">
           <p className="eyebrow">尚未解鎖</p>
           <h2>{meta.title}</h2>
+          <p className="note">{meta.why}</p>
+          <div className="divider" />
           <p className="note">
-            這個項目要先完成前面的訓練階段才會開放。順序是刻意的：在還不會計算部位之前練判讀，
+            這個項目要先完成前面的訓練階段才會計入進度。順序是刻意的：在還不會計算部位之前練判讀，
             學到的東西沒辦法轉換成通過考試的能力。
           </p>
-          <Link href="/train" className="btn" style={{ justifySelf: "start" }}>
-            ← 回到訓練列表
-          </Link>
+          {gate && gate.blockers.length > 0 && (
+            <div className="banner">
+              <span>🔒</span>
+              <span>解鎖條件：{gate.blockers.join("　·　")}</span>
+            </div>
+          )}
+          <div className="row">
+            <button className="btn btn-primary" onClick={() => setPreview(true)}>
+              先試做一題 →
+            </button>
+            <Link href="/train" className="btn">
+              ← 回到訓練列表
+            </Link>
+          </div>
+          <p className="tiny">
+            試做會完整評分並說明，但不會計入能力值、XP 或精熟進度。想知道這個項目在練什麼，
+            試一題最快。
+          </p>
         </div>
       </main>
     );
@@ -201,6 +230,16 @@ export default function DrillRunner() {
         </div>
       )}
 
+      {locked && preview && (
+        <div className="banner">
+          <span>🔒</span>
+          <span>
+            試做模式：這一題會完整評分，但 <b>不會</b> 計入能力值、XP 或精熟進度。
+            要正式累積進度，請先完成前面的訓練階段。
+          </span>
+        </div>
+      )}
+
       {market?.error && (
         <div className="banner bad">
           <span>✕</span>
@@ -215,7 +254,7 @@ export default function DrillRunner() {
       )}
 
       {current ? (
-        <GradeCard grade={current.grade} onNext={nextRound} nextLabel="下一題" />
+        <GradeCard grade={current.grade} onNext={nextRound} nextLabel="下一題" recorded={!locked} />
       ) : loadingMarket ? (
         <div className="empty">
           <p>正在載入真實歷史 K 線…</p>
