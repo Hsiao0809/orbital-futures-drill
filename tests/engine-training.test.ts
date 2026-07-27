@@ -881,6 +881,70 @@ test("mastering a stage unlocks the next one", () => {
   assert.ok(unlockedDrills(profile).includes("stop"));
 });
 
+test("mastering a stage always unlocks the next one, however long it took", () => {
+  // Regression: unlocking required BOTH the previous stage cleared AND a skill
+  // rating threshold. Mastery is three consecutive 80s, but the rating is a
+  // lagging EWMA, so a learner who struggled before getting there could be
+  // told a stage was cleared and still find the next one locked behind a
+  // number they had no direct way to move.
+  const paths: Array<[string, number[]]> = [
+    ["straight to it", [80, 80, 80]],
+    ["a few misses first", [30, 25, 40, 35, 45, 50, 55, 60, 80, 80, 80]],
+    ["a long struggle", [...new Array(20).fill(20), 80, 80, 80]],
+    ["a very long struggle", [...new Array(25).fill(10), 85, 85, 85]],
+  ];
+
+  for (const [label, scores] of paths) {
+    let profile = createProfile();
+    scores.forEach((score, index) => {
+      profile = applyDrillOutcome(profile, {
+        drillId: "sizing", skill: "SIZING", score, at: Date.now() + index * 86_400_000,
+      });
+    });
+    assert.equal(profile.mastery.sizing.mastered, true, `${label}: fixture should reach mastery`);
+
+    const states = stageStates(profile);
+    assert.equal(states[0].cleared, true, `${label}: stage one should be cleared`);
+    assert.equal(
+      states[1].unlocked,
+      true,
+      `${label}: stage two locked despite a cleared stage one (SIZING ${profile.skills.SIZING.toFixed(0)})`,
+    );
+    assert.deepEqual(states[1].blockers, [], `${label}: a cleared stage should leave no blockers`);
+  }
+});
+
+test("strong ratings open a stage without grinding the earlier drill", () => {
+  // The rating route is the alternative, not a second hurdle.
+  const capable: ProgressProfile = {
+    ...createProfile(),
+    skills: { READ: 90, SIZING: 90, DISCIPLINE: 90, PATIENCE: 90, CONSISTENCY: 90 },
+  };
+  assert.equal(stageStates(capable)[1].unlocked, true);
+});
+
+test("a learner with neither route open stays locked, and is told both", () => {
+  const states = stageStates(createProfile());
+  assert.equal(states[1].unlocked, false);
+  assert.equal(states[1].blockers.length, 1);
+  assert.match(states[1].blockers[0], /完成/);
+  assert.match(states[1].blockers[0], /或/, "the alternative route should be spelled out");
+});
+
+test("the rating shortcut does not open the final evaluation", () => {
+  // Ratings are an average; the capstone tests consistency, so it takes the
+  // ladder. The shortcut exists to stop intermediate stages deadlocking, not
+  // to let anyone skip to the exam.
+  const capable: ProgressProfile = {
+    ...createProfile(),
+    skills: { READ: 99, SIZING: 99, DISCIPLINE: 99, PATIENCE: 99, CONSISTENCY: 99 },
+  };
+  assert.equal(evaluationUnlocked(capable), false);
+  const exam = stageStates(capable).find((state) => state.stage.unlocksEvaluation)!;
+  assert.ok(exam.blockers.length > 0);
+  assert.ok(!exam.blockers[0].includes("或"), "the exam must not advertise a shortcut it does not honour");
+});
+
 test("the evaluation simulator stays locked until the ladder is cleared", () => {
   const halfway: ProgressProfile = {
     ...createProfile(),

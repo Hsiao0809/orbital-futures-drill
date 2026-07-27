@@ -111,22 +111,46 @@ export function stageStates(profile: ProgressProfile): StageState[] {
   const clearedIds = new Set<string>();
 
   for (const stage of STAGES) {
+    // Two independent routes in, not two hurdles.
+    //
+    // Clearing the previous stage is the stated requirement, so it must be
+    // sufficient on its own. It previously was not: mastery needs three
+    // consecutive 80s, but the skill rating is an EWMA that lags, so a learner
+    // who struggled before getting it could finish a stage, be told it was
+    // cleared, and still find the next one locked behind a rating they had no
+    // direct way to move. Being told you passed and then refused entry is the
+    // worst possible message.
+    //
+    // The rating route remains as an alternative for someone who is already
+    // competent and should not have to grind the earlier drill.
+    const previousCleared = !stage.requires.stage || clearedIds.has(stage.requires.stage);
+    const skillGaps = (Object.entries(stage.requires.skills) as Array<[SkillId, number]>)
+      .filter(([skill, need]) => profile.skills[skill] < need);
+    // The capstone is the exception: it takes the ladder, not the shortcut.
+    // Ratings are an average, so alternating brilliant and terrible attempts
+    // can hold a high one without ever demonstrating consistency — and
+    // consistency is precisely what the full evaluation tests.
+    const skillRouteOpen = skillGaps.length === 0 && !stage.unlocksEvaluation;
+    const unlocked = previousCleared || skillRouteOpen;
+
     const blockers: string[] = [];
-    if (stage.requires.stage && !clearedIds.has(stage.requires.stage)) {
+    if (!unlocked) {
       const previous = STAGES.find((item) => item.id === stage.requires.stage);
-      blockers.push(`先完成「${previous?.title ?? stage.requires.stage}」`);
-    }
-    for (const [skill, need] of Object.entries(stage.requires.skills) as Array<[SkillId, number]>) {
-      const have = profile.skills[skill];
-      if (have < need) blockers.push(`${skillLabel(skill)} 需達 ${need}（目前 ${have.toFixed(0)}）`);
+      const alternative = skillGaps
+        .map(([skill, need]) => `${skillLabel(skill)} ${profile.skills[skill].toFixed(0)}/${need}`)
+        .join("、");
+      blockers.push(
+        `完成「${previous?.title ?? stage.requires.stage}」` +
+          (alternative && !stage.unlocksEvaluation ? `，或讓能力值達標（${alternative}）` : ""),
+      );
     }
 
     const masteredCount = stage.required.filter((id) => profile.mastery[id]?.mastered).length;
     const progress = stage.required.length ? masteredCount / stage.required.length : clearedIds.size ? 1 : 0;
-    const cleared = stage.required.length ? masteredCount === stage.required.length : blockers.length === 0;
-    if (cleared && !blockers.length) clearedIds.add(stage.id);
+    const cleared = unlocked && (stage.required.length ? masteredCount === stage.required.length : true);
+    if (cleared) clearedIds.add(stage.id);
 
-    states.push({ stage, unlocked: blockers.length === 0, cleared: cleared && !blockers.length, progress, blockers });
+    states.push({ stage, unlocked, cleared, progress, blockers });
   }
   return states;
 }
