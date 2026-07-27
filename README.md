@@ -1,8 +1,25 @@
-# Orbital Futures Drill
+# ORBITAL Futures Drill
 
-A paper-only training game for USDT perpetual futures. Pick a contract, make a
-long, short, or wait decision with future candles hidden, then reveal the tape
-and build a discipline score. It does not connect to exchanges or place orders.
+A paper-only training product for USDT perpetual futures. Pick a real Binance
+USDⓈ-M perpetual contract, make a long, short, or wait decision with future
+candles hidden, then reveal the tape and learn from the outcome. It does not
+connect to exchanges or place orders.
+
+## Product principles
+
+- Real historical K-line data, with future candles hidden.
+- A simulated prop-style account, transparent P&L, fees, and slippage.
+- Decision feedback that teaches market structure and risk discipline.
+- No trading signals, live execution, or profit promises.
+
+## Collaboration
+
+This repository is the collaboration source of truth for Codex and Claude.
+Work on a feature branch and open a pull request into `main`; see
+[AGENTS.md](AGENTS.md) for the non-negotiable product and validation rules.
+
+The deployed preview is a separate release step. A branch or pull request is
+not production.
 
 ## Prerequisites
 
