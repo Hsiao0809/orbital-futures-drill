@@ -57,6 +57,14 @@ export default function GradeCard({
         ))}
       </div>
 
+      {grade.suggestion && (
+        <div className="suggestion">
+          <span>{grade.suggestion.label}</span>
+          <b className="num">{grade.suggestion.value}</b>
+          <p>{grade.suggestion.why}</p>
+        </div>
+      )}
+
       <div className="lesson-box">{grade.lesson}</div>
 
       <button className="btn btn-primary btn-lg" onClick={onNext}>

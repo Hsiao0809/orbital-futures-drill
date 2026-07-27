@@ -36,6 +36,20 @@ never deleting it:
   every grader that scores a size.
 - **Nothing is graded on a single candle.** Directional grading is path-aware
   over a horizon, normalised by the ATR observable at the decision point.
+- **Only score what the learner could know when they decided.** Whether a stop
+  was subsequently swept is an outcome, not a decision; report it, do not
+  grade it. The stop drill once put 40% of its marks on that, which made the
+  best achievable score fall below the mastery threshold on 38% of generated
+  scenarios — the drill was unpassable, not hard.
+- **Every drill must be masterable.** If a sweep of the answer space cannot
+  reach 80 on a scenario, the grader is broken. `tests/engine-training.test.ts`
+  enforces this for the stop drill; add the same guard to any new drill.
+- **A failing answer says where to aim.** Populate `Grade.suggestion` with a
+  concrete target and the reasoning behind it. A bare score teaches nothing.
+- **Teach before testing.** A drill that requires knowledge the interface never
+  supplied is a guessing game. Where there is a method, show it worked through
+  with the current question's own numbers, at enough precision that following
+  it scores full marks.
 - Drill scenarios are seeded and reproducible. Randomness belongs in
   `lib/store/client.ts` or `lib/engine/rng.ts`, never in a component render.
 
@@ -70,14 +84,22 @@ flow in a browser. Binance returns HTTP 451 from some IP ranges, in which case
 stub `/api/klines` to exercise the market-data drills. Describe the exact
 scenario tested in the pull request.
 
-### Note on a superseded rule
+### Layout: working pages do not scroll
 
-Earlier revisions required the training surface to fit in one desktop viewport
-with no page scrolling. That constraint belonged to the previous single-page
-drill. The product is now a multi-route application whose pages legitimately
-scroll; the replacement requirement is that **the primary decision surface —
-chart, risk HUD, and the action control — is visible together without
-scrolling** on the drill and exam screens.
+Every working page (`/train`, `/train/*`, `/exam`, `/journal`) fits one desktop
+viewport. Panels scroll inside themselves; the page never does. Opt in with
+`viewport` on the `<main>`, and mark the region that should absorb the space
+with `grow pane`. Below 900x600 this relaxes to normal scrolling, because a
+locked 100vh on a small screen puts content out of reach.
+
+The dashboard is the single exception: it is a reading surface, not a working
+one.
+
+The rule that matters underneath: **the thing the learner has to act on is
+never below the fold.** Teaching material buried under a risk readout, or a
+submit button pushed off the bottom of its column, may as well not exist. A
+previous revision relaxed this rule when the app went multi-route; that was a
+mistake and it was reinstated.
 
 ## Ownership and release flow
 

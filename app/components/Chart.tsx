@@ -31,6 +31,12 @@ type Props = {
   loading?: boolean;
   error?: string | null;
   height?: number;
+  /**
+   * Fill the parent instead of taking a fixed height. Required on fixed-viewport
+   * pages, where a hard-coded pixel height cannot shrink and pushes the whole
+   * page into scrolling on shorter screens.
+   */
+  fill?: boolean;
 };
 
 const THEME = {
@@ -63,6 +69,7 @@ export default function Chart({
   loading = false,
   error = null,
   height = 420,
+  fill = false,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -138,7 +145,11 @@ export default function Chart({
   const hidden = Math.max(0, candles.length - visible);
 
   return (
-    <div className="chart-frame" style={{ height }} aria-label="歷史 K 線圖表">
+    <div
+      className={`chart-frame${fill ? " chart-fill" : ""}`}
+      style={fill ? undefined : { height }}
+      aria-label="歷史 K 線圖表"
+    >
       <div ref={host} className="chart-host" />
       {hidden > 0 && !loading && !error && (
         <div className="chart-fog">

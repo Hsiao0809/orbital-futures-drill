@@ -6,7 +6,6 @@
 import { useMemo, useState } from "react";
 import Chart, { type PriceLine } from "@/app/components/Chart";
 import { evaluate } from "@/lib/engine/propRules.ts";
-import { sizePosition } from "@/lib/engine/sizing.ts";
 import RiskHud from "@/app/components/RiskHud";
 import type {
   AnyAnswer,
@@ -22,9 +21,25 @@ const COLOURS = { entry: "#c8f466", stop: "#f26c7c", target: "#6ee7b7" };
 
 function fmt(value: number, digits = 4): string {
   if (!Number.isFinite(value)) return "—";
-  if (Math.abs(value) >= 1000) return value.toLocaleString("en-US", { maximumFractionDigits: 1 });
+  if (Math.abs(value) >= 1000)
+    return value.toLocaleString("en-US", { maximumFractionDigits: 1 });
   if (Math.abs(value) >= 1) return value.toFixed(2);
   return value.toFixed(digits);
+}
+
+/**
+ * Six significant digits, for numbers the learner is expected to key into a
+ * calculation. Display rounding propagates into their answer, so the worked
+ * method must not round harder than the grader tolerates.
+ */
+function precise(value: number): string {
+  if (!Number.isFinite(value)) return "—";
+  if (value === 0) return "0";
+  const digits = Math.max(
+    0,
+    6 - Math.max(0, Math.floor(Math.log10(Math.abs(value))) + 1),
+  );
+  return value.toFixed(Math.min(10, digits));
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +56,7 @@ export function BiasPanel({
 
   return (
     <div className="split">
-      <Chart candles={scenario.candles} visible={scenario.visibleCount} height={460} />
+      <Chart candles={scenario.candles} visible={scenario.visibleCount} fill />
       <aside className="stack">
         <div className="card stack">
           <p className="eyebrow">
@@ -59,7 +74,9 @@ export function BiasPanel({
             </div>
             <div className="stat stat-sm">
               <span>結構強度</span>
-              <b className="num">{(scenario.structure.strength * 100).toFixed(0)}%</b>
+              <b className="num">
+                {(scenario.structure.strength * 100).toFixed(0)}%
+              </b>
               <i>系統讀數僅供參考</i>
             </div>
           </div>
@@ -112,7 +129,10 @@ export function BiasPanel({
           <button
             className="btn btn-primary btn-lg"
             disabled={!choice}
-            onClick={() => choice && onAnswer({ kind: "BIAS", value: { choice, confidence } })}
+            onClick={() =>
+              choice &&
+              onAnswer({ kind: "BIAS", value: { choice, confidence } })
+            }
           >
             揭露結果 →
           </button>
@@ -142,14 +162,21 @@ export function StopPanel({
 
   return (
     <div className="split">
-      <Chart candles={scenario.candles} visible={scenario.visibleCount} lines={lines} height={460} />
+      <Chart
+        candles={scenario.candles}
+        visible={scenario.visibleCount}
+        lines={lines}
+        fill
+      />
       <aside className="stack">
         <div className="card stack">
           <p className="eyebrow">
             {scenario.symbol} · {scenario.interval}
           </p>
           <div className="row">
-            <span className={`pill ${scenario.side === "LONG" ? "pill-green" : "pill-red"}`}>
+            <span
+              className={`pill ${scenario.side === "LONG" ? "pill-green" : "pill-red"}`}
+            >
               {scenario.side}
             </span>
             <span className="note">
@@ -185,10 +212,18 @@ export function StopPanel({
             </div>
             <div className="stat stat-sm">
               <span>停損幅度</span>
-              <b className="num">{((Math.abs(scenario.entry - stop) / scenario.entry) * 100).toFixed(2)}%</b>
+              <b className="num">
+                {(
+                  (Math.abs(scenario.entry - stop) / scenario.entry) *
+                  100
+                ).toFixed(2)}
+                %
+              </b>
             </div>
           </div>
-          <p className="tiny">ATR = {fmt(scenario.atr)}。這是近期單根 K 線的平均真實波幅。</p>
+          <p className="tiny">
+            ATR = {fmt(scenario.atr)}。這是近期單根 K 線的平均真實波幅。
+          </p>
 
           <button
             className="btn btn-primary btn-lg"
@@ -212,6 +247,7 @@ export function SizingPanel({
   onAnswer: (answer: AnyAnswer) => void;
 }) {
   const [qty, setQty] = useState("");
+  const [showMethod, setShowMethod] = useState(true);
   const metrics = useMemo(
     () => evaluate(scenario.account, scenario.account.balance),
     [scenario.account],
@@ -220,20 +256,8 @@ export function SizingPanel({
   const parsed = Number(qty);
   const valid = qty.trim() !== "" && Number.isFinite(parsed) && parsed >= 0;
   const stopDistance = Math.abs(scenario.entry - scenario.stop);
-  const impliedRisk = valid
-    ? parsed * stopDistance + parsed * (scenario.entry + scenario.stop) * scenario.rules.takerFee
-    : 0;
-
-  // A worked reference so the learner sees the shape of the calculation
-  // without being handed the answer: the room cap is deliberately not applied.
-  const naive = sizePosition({
-    equity: metrics.equity,
-    riskPct: scenario.riskPct,
-    entry: scenario.entry,
-    stop: scenario.stop,
-    side: scenario.side,
-    rules: scenario.rules,
-  });
+  const feePerUnit = (scenario.entry + scenario.stop) * scenario.rules.takerFee;
+  const impliedRisk = valid ? parsed * (stopDistance + feePerUnit) : 0;
 
   return (
     <div className="split">
@@ -249,7 +273,10 @@ export function SizingPanel({
             </div>
             <div className="stat stat-sm">
               <span>方向</span>
-              <b className={scenario.side === "LONG" ? "up" : "down"} style={{ fontSize: 13 }}>
+              <b
+                className={scenario.side === "LONG" ? "up" : "down"}
+                style={{ fontSize: 13 }}
+              >
                 {scenario.side}
               </b>
             </div>
@@ -264,6 +291,105 @@ export function SizingPanel({
           </div>
         </div>
 
+        <div className="grow pane stack">
+          {/* The method, worked through with this question's own numbers, but
+              stopping short of the arithmetic. Showing a single ready-made
+              quantity was actively harmful: it is only the answer when the limit
+              cap does not bind, so learners who trusted it were marked wrong for
+              following the screen. */}
+          <div className="card stack">
+            <div className="row-between">
+              <p className="eyebrow" style={{ margin: 0 }}>
+                怎麼算
+              </p>
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => setShowMethod((value) => !value)}
+              >
+                {showMethod ? "收起" : "展開"}
+              </button>
+            </div>
+
+            {showMethod ? (
+              <>
+                <p className="note">
+                  有<b className="accent">兩個</b>限制，各算一次，答案取
+                  <b className="accent">比較小</b>的那個。
+                </p>
+
+                <div className="stat">
+                  <span>① 依計畫風險</span>
+                  <p className="tiny" style={{ marginTop: 6, lineHeight: 1.9 }}>
+                    風險金額 = 權益 × 風險%
+                    <br />
+                    <span className="num">
+                      = {precise(metrics.equity)} ×{" "}
+                      {(scenario.riskPct * 100).toFixed(2)}% ={" "}
+                      <b className="accent">
+                        {precise(metrics.equity * scenario.riskPct)} U
+                      </b>
+                    </span>
+                  </p>
+                </div>
+
+                <div className="stat">
+                  <span>② 依剩餘限額（最多人忘記這步）</span>
+                  <p className="tiny" style={{ marginTop: 6, lineHeight: 1.9 }}>
+                    單筆上限 = 剩餘空間 ÷ 3
+                    <br />
+                    <span className="num">
+                      = {precise(metrics.bindingRoom)} ÷ 3 ={" "}
+                      <b className="accent">
+                        {precise(metrics.bindingRoom / 3)} U
+                      </b>
+                    </span>
+                    <br />
+                    <span className="dim">
+                      虧一次還要剩兩次容錯，所以單筆不超過剩餘空間的三分之一。
+                    </span>
+                  </p>
+                </div>
+
+                <div className="stat">
+                  <span>③ 換成口數</span>
+                  <p className="tiny" style={{ marginTop: 6, lineHeight: 1.9 }}>
+                    口數 = 風險金額 ÷（停損距離 + 來回手續費）
+                    <br />
+                    <span className="num">
+                      停損距離 = |{scenario.entry} − {scenario.stop}| ={" "}
+                      <b>{precise(stopDistance)}</b>
+                    </span>
+                    <br />
+                    <span className="num">
+                      來回手續費 = ({scenario.entry} + {scenario.stop}) ×{" "}
+                      {(scenario.rules.takerFee * 100).toFixed(3)}% ={" "}
+                      <b>{precise(feePerUnit)}</b>
+                    </span>
+                    <br />
+                    <span className="num">
+                      分母 ={" "}
+                      <b className="accent">
+                        {precise(stopDistance + feePerUnit)}
+                      </b>
+                    </span>
+                  </p>
+                </div>
+
+                <p className="tiny">
+                  手續費一定要算進去。停損越近，手續費在風險裡的佔比越高，
+                  忽略它就會系統性地下得比自己以為的還大。
+                </p>
+              </>
+            ) : (
+              <p className="tiny">
+                口數 =（① 計畫風險 與 ② 剩餘空間÷3 的較小者）÷（停損距離 +
+                來回手續費）
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+      <aside className="stack">
         <div className="card stack">
           <p className="eyebrow">你的答案</p>
           <div className="field">
@@ -287,12 +413,16 @@ export function SizingPanel({
               <div className="stat stat-sm">
                 <span>停損觸發時虧損</span>
                 <b className="num warn">{fmt(impliedRisk, 2)} U</b>
-                <i>佔帳戶 {((impliedRisk / metrics.equity) * 100).toFixed(2)}%</i>
+                <i>
+                  佔帳戶 {((impliedRisk / metrics.equity) * 100).toFixed(2)}%
+                </i>
               </div>
             </div>
           )}
           {valid && parsed === 0 && (
-            <p className="note">你的答案是「不交易」。在剩餘空間不足時，這確實可能是正解。</p>
+            <p className="note">
+              你的答案是「不交易」。在剩餘空間不足時，這確實可能是正解。
+            </p>
           )}
 
           <button
@@ -303,27 +433,13 @@ export function SizingPanel({
             提交答案 →
           </button>
         </div>
-      </div>
-
-      <aside className="stack">
         <div className="card stack">
           <p className="eyebrow">帳戶風險狀態</p>
-          <RiskHud metrics={metrics} rules={scenario.rules} pendingRisk={impliedRisk} />
-        </div>
-        <div className="card stack">
-          <p className="eyebrow">提示</p>
-          <p className="note">
-            計畫風險為帳戶的 <b className="accent">{(scenario.riskPct * 100).toFixed(2)}%</b>，
-            也就是 <b className="num">{fmt(metrics.equity * scenario.riskPct, 2)} U</b>。
-          </p>
-          <p className="note">
-            停損距離 <b className="num">{fmt(stopDistance)}</b>，
-            單邊手續費 {(scenario.rules.takerFee * 100).toFixed(3)}%（進出各一次）。
-          </p>
-          <p className="tiny">
-            只用計畫風險算出來會是 {naive.qty.toFixed(4)} 口。但那不一定是正解——
-            如果剩餘限額空間撐不住這個風險，正確答案要更小，甚至是零。
-          </p>
+          <RiskHud
+            metrics={metrics}
+            rules={scenario.rules}
+            pendingRisk={impliedRisk}
+          />
         </div>
       </aside>
     </div>
@@ -342,7 +458,10 @@ export function ExitPanel({
   const anchor = scenario.visibleCount - 1;
   const risk = Math.abs(scenario.entry - scenario.stop);
   const direction = scenario.side === "LONG" ? 1 : -1;
-  const lastIndex = Math.min(scenario.candles.length - 1, anchor + scenario.horizon);
+  const lastIndex = Math.min(
+    scenario.candles.length - 1,
+    anchor + scenario.horizon,
+  );
 
   const [cursor, setCursor] = useState(anchor);
   const [stop, setStop] = useState(scenario.stop);
@@ -352,7 +471,11 @@ export function ExitPanel({
   const openR = ((price - scenario.entry) * direction) / risk;
   const barsLeft = lastIndex - cursor;
 
-  const finish = (exitPrice: number, stoppedOut: boolean, closedIndex: number) => {
+  const finish = (
+    exitPrice: number,
+    stoppedOut: boolean,
+    closedIndex: number,
+  ) => {
     onAnswer({
       kind: "EXIT",
       value: {
@@ -367,10 +490,12 @@ export function ExitPanel({
     const next = cursor + 1;
     if (next > lastIndex) return;
     const candle = scenario.candles[next];
-    const hit = scenario.side === "LONG" ? candle.low <= stop : candle.high >= stop;
+    const hit =
+      scenario.side === "LONG" ? candle.low <= stop : candle.high >= stop;
     if (hit) {
       // Gap through the stop fills at the open, same rule as the simulator.
-      const gapped = scenario.side === "LONG" ? candle.open <= stop : candle.open >= stop;
+      const gapped =
+        scenario.side === "LONG" ? candle.open <= stop : candle.open >= stop;
       setCursor(next);
       finish(gapped ? candle.open : stop, true, next);
       return;
@@ -381,19 +506,31 @@ export function ExitPanel({
 
   const lines: PriceLine[] = [
     { price: scenario.entry, label: "進場", color: COLOURS.entry },
-    { price: stop, label: movedToBreakeven ? "停損（成本）" : "停損", color: COLOURS.stop, dashed: true },
+    {
+      price: stop,
+      label: movedToBreakeven ? "停損（成本）" : "停損",
+      color: COLOURS.stop,
+      dashed: true,
+    },
   ];
 
   return (
     <div className="split">
-      <Chart candles={scenario.candles} visible={cursor + 1} lines={lines} height={460} />
+      <Chart
+        candles={scenario.candles}
+        visible={cursor + 1}
+        lines={lines}
+        fill
+      />
       <aside className="stack">
         <div className="card stack">
           <p className="eyebrow">
             {scenario.symbol} · {scenario.interval}
           </p>
           <div className="row">
-            <span className={`pill ${scenario.side === "LONG" ? "pill-green" : "pill-red"}`}>
+            <span
+              className={`pill ${scenario.side === "LONG" ? "pill-green" : "pill-red"}`}
+            >
               {scenario.side}
             </span>
             <span className="note">
@@ -420,7 +557,11 @@ export function ExitPanel({
 
         <div className="card stack">
           <p className="eyebrow">操作</p>
-          <button className="btn btn-lg" onClick={revealNext} disabled={barsLeft <= 0}>
+          <button
+            className="btn btn-lg"
+            onClick={revealNext}
+            disabled={barsLeft <= 0}
+          >
             持有，揭露下一根 →
           </button>
           <button
@@ -494,9 +635,16 @@ export function ChoicePanel({
                 key={option.id}
                 className={className}
                 disabled={answered}
-                onClick={() => onAnswer({ kind: scenario.kind, value: { choiceId: option.id } })}
+                onClick={() =>
+                  onAnswer({
+                    kind: scenario.kind,
+                    value: { choiceId: option.id },
+                  })
+                }
               >
-                <span className="choice-key">{String.fromCharCode(65 + index)}</span>
+                <span className="choice-key">
+                  {String.fromCharCode(65 + index)}
+                </span>
                 <span>
                   <strong>{option.label}</strong>
                   <span>{option.detail}</span>

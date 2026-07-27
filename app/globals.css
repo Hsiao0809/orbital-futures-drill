@@ -421,6 +421,7 @@ input[type="range"]::-moz-range-thumb {
   min-height: 280px;
   box-shadow: var(--inset-top);
 }
+.chart-fill { height: 420px; }
 .chart-host { position: absolute; inset: 0; }
 .chart-overlay {
   position: absolute;
@@ -672,6 +673,76 @@ tbody tr:last-child td { border-bottom: none; }
   max-width: 92ch;
 }
 
+/* --- fixed viewport ------------------------------------------------------
+   Working pages must not scroll as a page. Panels scroll inside themselves
+   instead, so the chart, the risk readout and the action control stay on
+   screen together — the whole point of an instrument panel is that you never
+   lose sight of the number that is about to kill the account.
+
+   A page opts in by putting `viewport` on its <main>. The dashboard does not:
+   it is a reading surface, not a working one.
+
+   Only applied when there is genuinely room. On a short or narrow screen a
+   locked 100vh would clip content with no way to reach it, so below this
+   breakpoint everything falls back to ordinary page scrolling.
+--------------------------------------------------------------------------- */
+
+@media (min-width: 900px) and (min-height: 600px) {
+  body:has(.viewport) { overflow: hidden; }
+
+  body:has(.viewport) .shell {
+    height: 100vh;
+    padding-bottom: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  body:has(.viewport) .topnav { flex: none; margin-bottom: 14px; }
+  body:has(.viewport) .footnote { display: none; }
+
+  .viewport {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 16px;
+  }
+  .viewport > header { flex: none; }
+
+  /* The one region that expands to fill whatever is left. */
+  .viewport .grow { flex: 1; min-height: 0; }
+
+  /* Two-column working layouts fill the remaining height, and each column
+     scrolls on its own rather than pushing the page taller. */
+  .viewport .split,
+  .viewport .split-wide {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+  .viewport .split > *,
+  .viewport .split-wide > * {
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  /* Any block can be made to scroll internally. */
+  .pane { min-height: 0; overflow-y: auto; }
+
+  /* A filling chart must never be the reason the page scrolls. */
+  .viewport .chart-fill { height: 100%; min-height: 150px; overflow: hidden; }
+  /* The exam's chart shares its column with the ticket, so it takes what is
+     left rather than a share of it. */
+  .viewport .chart-column { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .viewport .chart-column > .chart-fill { flex: 1; }
+
+  .viewport ::-webkit-scrollbar { width: 6px; height: 6px; }
+  .viewport ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 99px; }
+  .viewport ::-webkit-scrollbar-track { background: transparent; }
+}
+
 @media (max-width: 1080px) {
   .split, .split-wide { grid-template-columns: minmax(0, 1fr); }
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -686,3 +757,40 @@ tbody tr:last-child td { border-bottom: none; }
   .side-buttons { grid-template-columns: 1fr; }
   .verdict-score { font-size: 34px; }
 }
+
+/* Trade ticket summary: a dense confirmation strip, not a stat board. */
+.ticket-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface-sunken);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.ticket-summary b { font-size: 14px; color: var(--ink); margin-left: 5px; }
+.ticket-summary i { font-style: normal; font-size: 11.5px; color: var(--faint); margin-left: 7px; }
+
+/* Shown when an answer falls short: where a good answer would have been.
+   A bare score teaches nothing about where to aim next time. */
+.suggestion {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 12px;
+  align-items: baseline;
+  padding: 12px 14px;
+  border: 1px solid rgba(124, 235, 192, 0.34);
+  border-radius: var(--r);
+  background: linear-gradient(180deg, rgba(124, 235, 192, 0.08), rgba(124, 235, 192, 0.02));
+}
+.suggestion > span {
+  font-size: 11.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--green);
+  font-weight: 700;
+}
+.suggestion > b { font-size: 19px; color: var(--ink); letter-spacing: -0.03em; }
+.suggestion > p { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-dim); line-height: 1.72; margin-top: 4px; }

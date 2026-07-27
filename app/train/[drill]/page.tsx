@@ -168,7 +168,7 @@ export default function DrillRunner() {
   const generationFailed = Boolean(seed) && !loadingMarket && !scenario && !market?.error;
 
   return (
-    <main className="stack-lg">
+    <main className="viewport">
       <header className="row-between">
         <div>
           <p className="eyebrow">
@@ -254,13 +254,15 @@ export default function DrillRunner() {
       )}
 
       {current ? (
-        <GradeCard grade={current.grade} onNext={nextRound} nextLabel="下一題" recorded={!locked} />
+        <div className="grow pane">
+          <GradeCard grade={current.grade} onNext={nextRound} nextLabel="下一題" recorded={!locked} />
+        </div>
       ) : loadingMarket ? (
-        <div className="empty">
+        <div className="empty grow">
           <p>正在載入真實歷史 K 線…</p>
         </div>
       ) : !scenario ? (
-        <div className="empty">
+        <div className="empty grow">
           <p>準備題目中…</p>
         </div>
       ) : scenario.kind === "BIAS" ? (

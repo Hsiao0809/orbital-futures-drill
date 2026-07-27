@@ -25,7 +25,7 @@ export default function TrainHub() {
     stages.find((state) => state.stage.drills.includes(drillId));
 
   return (
-    <main className="stack-lg">
+    <main className="viewport">
       <header className="page-head">
         <p className="eyebrow">訓練</p>
         <h1>六種題型，每一種對應一個會讓你出局的環節。</h1>
@@ -35,7 +35,7 @@ export default function TrainHub() {
         </p>
       </header>
 
-      <section className="drill-grid">
+      <section className="drill-grid grow pane">
         {DRILLS.map((drill) => {
           const open = unlocked.has(drill.id);
           const record = profile.mastery[drill.id];

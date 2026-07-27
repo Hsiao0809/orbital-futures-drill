@@ -12,6 +12,7 @@ import {
   generateExit,
   generateSizing,
   generateStop,
+  suggestStop,
   gradeBias,
   gradeChoice,
   gradeExit,
@@ -261,6 +262,42 @@ test("the exact sizing answer scores full marks", () => {
   }
 });
 
+test("a human-precision answer still scores full marks, including when the cap binds", () => {
+  // Regression: the safety check used an absolute 1e-6 tolerance against a
+  // boundary of ~87 U. A learner typing six decimals lost all 25 safety points
+  // for the correct answer, capping capped-question scores at 75 — below the
+  // mastery threshold, so those questions could never be cleared.
+  let cappedSeen = 0;
+  for (let index = 0; index < 40; index += 1) {
+    const scenario = generateSizing(`human-${index}`);
+    const truth = sizingTruth(scenario);
+    if (truth.qty <= 0) continue;
+    if (truth.cappedByRoom) cappedSeen += 1;
+    // What someone actually types, rather than the exact float.
+    const typed = Number(truth.qty.toPrecision(6));
+    const grade = gradeSizing(scenario, { qty: typed });
+    assert.ok(
+      grade.score >= 99,
+      `seed human-${index}${truth.cappedByRoom ? " (cap binds)" : ""}: typed ${typed} scored ${grade.score}`,
+    );
+  }
+  assert.ok(cappedSeen > 0, "the fixture set must include capped scenarios or this proves nothing");
+});
+
+test("ignoring the room cap is still penalised", () => {
+  // The tolerance above must not soften the actual lesson.
+  let checked = 0;
+  for (let index = 0; index < 40; index += 1) {
+    const scenario = generateSizing(`ignore-${index}`);
+    const truth = sizingTruth(scenario);
+    if (!truth.cappedByRoom || truth.ideal.qty <= 0) continue;
+    checked += 1;
+    const grade = gradeSizing(scenario, { qty: truth.ideal.qty });
+    assert.ok(grade.score < 80, `sizing to plan while the cap binds should not reach mastery, got ${grade.score}`);
+  }
+  assert.ok(checked > 0, "no capped scenarios were exercised");
+});
+
 test("over-sizing is punished harder than under-sizing by the same margin", () => {
   const scenario = generateSizing("asym");
   const truth = sizingTruth(scenario);
@@ -338,22 +375,20 @@ test("an absurdly tight stop scores below a sensible one", () => {
   assert.ok(tight.score < sensible.score, `tight ${tight.score} vs sensible ${sensible.score}`);
 });
 
-test("the efficiency component penalises both extremes", () => {
-  // The total score is path-dependent — on some tapes a wide stop survives a
-  // sweep that a tight one does not, and it *should* be rewarded for that. The
-  // invariant that must always hold is on the efficiency term itself.
+test("placement is penalised for being both too tight and too wide", () => {
   const candles = series(400, { seed: "stop-tape-3" });
   const scenario = generateStop("stop-3", "SOLUSDT", "15m", candles);
   assert.ok(scenario);
   if (!scenario) return;
   const direction = scenario.side === "LONG" ? -1 : 1;
-  const efficiency = (multiple: number) =>
+  const ideal = suggestStop(scenario).atrUnits;
+  const placement = (multiple: number) =>
     gradeStop(scenario, { stop: scenario.entry + direction * scenario.atr * multiple })
-      .breakdown.find((item) => item.label === "效率")!.points;
+      .breakdown.find((item) => item.label === "位置")!.points;
 
-  assert.ok(efficiency(1.4) > efficiency(0.1), "a stop inside one bar's noise is inefficient");
-  assert.ok(efficiency(1.4) > efficiency(8), "a stop eight ATR away is barely a stop");
-  assert.ok(efficiency(8) < efficiency(3));
+  assert.ok(placement(ideal) > placement(ideal * 0.3), "a stop far inside the noise must score less");
+  assert.ok(placement(ideal) > placement(ideal * 3), "a stop three times too wide must score less");
+  assert.equal(placement(ideal), 70, "the reconciled stop should take the full placement mark");
 });
 
 test("across many tapes, sensible stops beat absurd ones on average", () => {
@@ -374,6 +409,77 @@ test("across many tapes, sensible stops beat absurd ones on average", () => {
     sensibleTotal / counted > absurdTotal / counted,
     `sensible ${(sensibleTotal / counted).toFixed(1)} vs absurd ${(absurdTotal / counted).toFixed(1)}`,
   );
+});
+
+test("every stop scenario is masterable", () => {
+  // Regression: grading structure, noise-clearance and efficiency as three
+  // independent components made them mutually unsatisfiable whenever the
+  // nearest swing sat inside the noise band. Across 120 generated scenarios
+  // the best achievable score fell below the 80 mastery threshold on 38% of
+  // them — the learner could pick the single best stop on the slider and still
+  // be unable to progress. A drill nobody can clear is not a hard drill.
+  let checked = 0;
+  for (let index = 0; index < 60; index += 1) {
+    const candles = series(400, { seed: `masterable-${index}`, drift: ((index % 5) - 2) * 0.0015 });
+    const scenario = generateStop(`ms-${index}`, "SOLUSDT", "15m", candles);
+    if (!scenario) continue;
+    checked += 1;
+    const direction = scenario.side === "LONG" ? -1 : 1;
+    let best = 0;
+    for (let multiple = 0.2; multiple <= 5.001; multiple += 0.05) {
+      const score = gradeStop(scenario, {
+        stop: scenario.entry + direction * scenario.atr * multiple,
+      }).score;
+      if (score > best) best = score;
+    }
+    assert.ok(best >= 80, `seed ms-${index}: best achievable score is only ${best}`);
+  }
+  assert.ok(checked > 30, `expected a real sample, only exercised ${checked}`);
+});
+
+test("the suggested stop is itself a top answer", () => {
+  for (let index = 0; index < 40; index += 1) {
+    const candles = series(400, { seed: `suggest-${index}`, drift: ((index % 4) - 2) * 0.002 });
+    const scenario = generateStop(`sg-${index}`, "SOLUSDT", "15m", candles);
+    if (!scenario) continue;
+    const grade = gradeStop(scenario, { stop: suggestStop(scenario).price });
+    assert.ok(grade.score >= 95, `following the suggestion scored only ${grade.score}`);
+    assert.equal(grade.suggestion, undefined, "a top answer should not be handed a correction");
+  }
+});
+
+test("a stop that misses the mark is told where to aim", () => {
+  const candles = series(400, { seed: "advice" });
+  const scenario = generateStop("advice", "SOLUSDT", "15m", candles);
+  assert.ok(scenario);
+  if (!scenario) return;
+  const direction = scenario.side === "LONG" ? -1 : 1;
+  // Deliberately far too tight.
+  const grade = gradeStop(scenario, { stop: scenario.entry + direction * scenario.atr * 0.1 });
+  assert.ok(grade.score < 80);
+  assert.ok(grade.suggestion, "a failing answer must carry a suggestion");
+  assert.ok(grade.suggestion!.value.includes("ATR"), "the suggestion should be actionable");
+  assert.ok(grade.suggestion!.why.length > 15, "the suggestion should explain itself");
+});
+
+test("stop grading ignores what happened after the decision", () => {
+  // The same decision must score the same regardless of the hidden bars, or
+  // the drill is scoring luck. Only the future differs between these two.
+  const base = series(400, { seed: "path" });
+  const scenario = generateStop("path", "SOLUSDT", "15m", base);
+  assert.ok(scenario);
+  if (!scenario) return;
+  const anchor = scenario.visibleCount - 1;
+  const wrecked = {
+    ...scenario,
+    candles: scenario.candles.map((candle, index) =>
+      index > anchor
+        ? { ...candle, low: candle.low * 0.8, high: candle.high * 0.8, close: candle.close * 0.8, open: candle.open * 0.8 }
+        : candle,
+    ),
+  };
+  const stop = suggestStop(scenario).price;
+  assert.equal(gradeStop(scenario, { stop }).score, gradeStop(wrecked, { stop }).score);
 });
 
 test("stop grades stay inside 0..100 across many tapes", () => {
