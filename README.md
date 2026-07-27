@@ -6,6 +6,50 @@
 
 ---
 
+## 怎麼使用
+
+這是一個網頁應用程式。在本機啟動：
+
+```bash
+npm install      # 第一次才需要
+npm run dev
+```
+
+然後開瀏覽器到 **http://localhost:3000**。
+
+要放到雲端讓任何裝置都能開，見下方「[部署到雲端](#部署到雲端)」。
+
+### 四個頁面
+
+| 頁面 | 路徑 | 你在這裡做什麼 |
+|---|---|---|
+| **儀表板** | `/` | 看考試準備度、今日訓練菜單、七階進度。**從這裡開始** |
+| **訓練** | `/train` | 六種題型。一開始只有「部位計算」是開放的 |
+| **考試模擬** | `/exam` | 多日完整考試。需要先完成訓練階梯才會開放 |
+| **紀錄與診斷** | `/journal` | 考完後看行為診斷、交易明細與歷次紀錄 |
+
+### 第一次進去該做什麼
+
+畫面上大部分項目會是鎖住的，這是刻意的設計，不是壞掉。儀表板最下方會直接告訴你
+「現在最該做的一件事」，照著點就行。
+
+典型的動線是：
+
+1. 儀表板 → **部位計算**（唯一開放的項目）
+2. 連續三次拿到 80 分以上 → 解鎖 **停損放置**
+3. 依序解鎖 行情判讀 → 出場管理 → 規則守門 → 情緒控制
+4. 六項都精熟後，**考試模擬**開放
+5. 跑完一次考試 → 到 **紀錄與診斷** 看自己被點名了哪些壞習慣
+
+不想照順序、只想先看看的話，**規則守門**（`/train/rule-guard`）最能代表這個產品在做什麼。
+
+### 進度儲存
+
+進度存在瀏覽器的 localStorage，不需要註冊或登入。換裝置或清除瀏覽器資料會歸零。
+`/journal` 頁面底部有「清除所有進度」可以重來。
+
+---
+
 ## 這個產品的核心判斷
 
 Prop firm 考試淘汰人的，幾乎從來不是「看錯方向」。
@@ -112,15 +156,51 @@ tests/               node --test，105 項測試涵蓋整個引擎
 
 ## 開發
 
-需要 Node.js `>=22.13.0`。
+需要 Node.js `>=22.13.0`（測試需要 22.18 以上）。
 
 ```bash
 npm install
-npm run dev          # 本機開發
+npm run dev          # 本機開發，http://localhost:3000
 npm test             # 引擎單元測試（105 項）
 npm run build        # 建置驗證
-npm run lint         # ESLint
+npm run lint         # ESLint，應為零錯誤零警告
 ```
+
+---
+
+## 部署到雲端
+
+專案本來就是為 Cloudflare Workers 建置的，`npm run build` 會直接產出可部署的
+worker 設定（`dist/server/wrangler.json`），不需要額外改架構。
+
+### 一次性設定
+
+1. 到 [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens) 建立
+   API Token，套用 **「Edit Cloudflare Workers」** 範本
+2. 在 GitHub repo 的 **Settings → Secrets and variables → Actions** 新增：
+   - `CLOUDFLARE_API_TOKEN` — 上一步的 token
+   - `CLOUDFLARE_ACCOUNT_ID` — 在 Cloudflare 首頁右側可以找到
+
+設定完成後，每次推到 `main` 都會自動部署。網址是：
+
+```
+https://orbital-trainer.<你的-workers-子網域>.workers.dev
+```
+
+### 手動部署
+
+```bash
+npx wrangler login     # 第一次
+npm run deploy
+```
+
+### 注意事項
+
+- **免費方案就夠用。** 目前建置產物約 425 KB（gzip），遠低於 Workers 的容量上限。
+- **Binance 的地區限制。** `/api/klines` 由 worker 端向 Binance 取資料，
+  請求會從離使用者最近的 Cloudflare 節點送出。部分地區的節點會被回 HTTP 451，
+  此時需要行情的題型會顯示明確錯誤，其餘題型不受影響。部署後值得先實測一次。
+- **進度仍存在瀏覽器。** 上雲端不等於跨裝置同步；帳號與同步是後續的工作。
 
 測試使用 Node 22 原生 TypeScript type stripping 直接執行 `.ts`，不需要額外的編譯步驟。
 
