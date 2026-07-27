@@ -6,8 +6,8 @@ import TrainingChart from "./TrainingChart";
 type Side = "LONG" | "SHORT" | "WAIT" | null;
 type Candle = { time: number; open: number; high: number; low: number; close: number };
 type Result = { pnl: number; discipline: number; correct: number; decisions: number; xp: number; status: "PASSED" | "FAILED" | "COMPLETE"; reason: string };
-type Position = { side: "LONG" | "SHORT"; entry: number; mark: number; margin: number; leverage: number; stop: number; target: number; disciplineNote?: string };
-type TradePlan = { side: "LONG" | "SHORT"; stopPct: number; targetR: number; margin: number };
+type Position = { id: string; side: "LONG" | "SHORT"; entry: number; mark: number; margin: number; leverage: number; stop: number; disciplineNote?: string };
+type TradePlan = { side: "LONG" | "SHORT"; stopPct: number; leverage: number; margin: number };
 type Insight = { label: string; pattern: string; explanation: string; nextFocus: string };
 type TurnFeedback = { decision: Exclude<Side, null>; correct: boolean; candleReturn: number; pnlDelta: number; exposure: string; disciplineNote?: string; insight: Insight; xpEarned: number; streak: number; finalResult?: Result };
 
@@ -73,7 +73,7 @@ export default function Home() {
   const [roundKey, setRoundKey] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
   const [log, setLog] = useState<string[]>(["選擇 LONG、SHORT 或 WAIT，開始本局。"]);
-  const [position, setPosition] = useState<Position | null>(null);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [lastChange, setLastChange] = useState<{ side: string; entry: number; exit: number; pnl: number } | null>(null);
   const [tradePlan, setTradePlan] = useState<TradePlan | null>(null);
   const [feedback, setFeedback] = useState<TurnFeedback | null>(null);
@@ -128,7 +128,7 @@ export default function Home() {
     setDiscipline(100);
     setPnl(0);
     setStats({ decisions: 0, correct: 0 });
-    setPosition(null);
+    setPositions([]);
     setLastChange(null);
     setTradePlan(null);
     setFeedback(null);
@@ -179,26 +179,21 @@ export default function Home() {
 
   const choose = (choice: Exclude<Side, null>) => {
     if (accountStatus !== "ACTIVE") return;
-    if (choice === "WAIT" && position) {
-      setLog((items) => ["持倉中不能選 WAIT；請先平倉，或選同方向繼續持有。", ...items].slice(0, 4));
-      return;
-    }
-    if ((choice === "LONG" || choice === "SHORT") && current && position?.side !== choice) {
-      if (position) {
-        setLog((items) => ["目前有反向持倉；先平倉才能改變方向。", ...items].slice(0, 4));
+    if (choice === "LONG" || choice === "SHORT") {
+      if (positions.some((item) => item.side === choice)) {
+        setSide(choice);
+        setLog((items) => [`續抱 ${choice}；可同時保留另一方向的避險部位。`, ...items].slice(0, 4));
         return;
       }
-      setTradePlan({ side: choice, stopPct: 0.8, targetR: 2, margin: MARGIN_PER_POSITION });
+      setTradePlan({ side: choice, stopPct: 0.8, leverage, margin: MARGIN_PER_POSITION });
       setSide(null);
-      setLog((items) => [`設定 ${choice} 進場計畫：先定停損、目標與風險。`, ...items].slice(0, 4));
+      setLog((items) => [`設定 ${choice} 進場計畫：可與既有 ${positions.length ? "反向" : ""}部位同時持有。`, ...items].slice(0, 4));
       return;
     }
     setSide(choice);
     if (choice === "WAIT") {
       setLastChange(null);
-      setLog((items) => ["選擇 WAIT：本根僅觀察，帳戶權益不會因這個選擇而變動。", ...items].slice(0, 4));
-    } else {
-      setLog((items) => [`選擇持有 ${choice}，揭露下一根 K 線後檢視結果。`, ...items].slice(0, 4));
+      setLog((items) => [positions.length ? "選擇 WAIT：不新增部位，既有部位會隨下一根 K 線標記。" : "選擇 WAIT：本根僅觀察，帳戶權益不會因這個選擇而變動。", ...items].slice(0, 4));
     }
   };
 
@@ -206,37 +201,35 @@ export default function Home() {
     if (!tradePlan || !current) return;
     const entry = current.close * (tradePlan.side === "LONG" ? 1 + SLIPPAGE_RATE : 1 - SLIPPAGE_RATE);
     const stop = entry * (tradePlan.side === "LONG" ? 1 - tradePlan.stopPct / 100 : 1 + tradePlan.stopPct / 100);
-    const target = entry * (tradePlan.side === "LONG" ? 1 + (tradePlan.stopPct * tradePlan.targetR) / 100 : 1 - (tradePlan.stopPct * tradePlan.targetR) / 100);
-    const estimatedRisk = tradePlan.margin * leverage * (tradePlan.stopPct / 100);
+    const estimatedRisk = tradePlan.margin * tradePlan.leverage * (tradePlan.stopPct / 100);
     const currentMove = Math.abs((current.close / current.open - 1) * 100);
     const infractions = [
-      leverage > 10 ? { text: "槓桿超過 10×（−8）", points: 8 } : null,
+      tradePlan.leverage > 10 ? { text: "槓桿超過 10×（−8）", points: 8 } : null,
       estimatedRisk > equity * 0.01 ? { text: "預估風險超過帳戶 1%（−6）", points: 6 } : null,
       currentMove > 0.8 ? { text: "追價於已擴張的 K 線（−4）", points: 4 } : null,
       tradesTaken >= 4 ? { text: "本局交易過於頻繁（−4）", points: 4 } : null,
     ].filter((item): item is { text: string; points: number } => Boolean(item));
     const penalty = infractions.reduce((total, item) => total + item.points, 0);
-    const entryFee = tradePlan.margin * leverage * TAKER_FEE_RATE;
+    const entryFee = tradePlan.margin * tradePlan.leverage * TAKER_FEE_RATE;
     const note = infractions.map((item) => item.text).join(" · ");
     setDiscipline((value) => Math.max(0, value - penalty));
     setPnl((value) => value - entryFee);
-    setPosition({ side: tradePlan.side, entry, mark: entry, margin: tradePlan.margin, leverage, stop, target, disciplineNote: note || undefined });
+    setPositions((items) => [...items, { id: `${tradePlan.side}-${current.time}`, side: tradePlan.side, entry, mark: entry, margin: tradePlan.margin, leverage: tradePlan.leverage, stop, disciplineNote: note || undefined }]);
     setTradesTaken((value) => value + 1);
     setTradePlan(null);
     setSide(tradePlan.side);
     setLastChange(null);
-    setLog((items) => [`建立 ${tradePlan.side}：進場 $${formatPrice(entry)} · 停損 $${formatPrice(stop)} · 目標 $${formatPrice(target)} · 手續費 −${entryFee.toFixed(2)} U`, ...items].slice(0, 4));
+    setLog((items) => [`建立 ${tradePlan.side}：進場 $${formatPrice(entry)} · 停損 $${formatPrice(stop)} · ${tradePlan.leverage}× · 手續費 −${entryFee.toFixed(2)} U`, ...items].slice(0, 4));
   };
 
-  const closePosition = () => {
-    if (!position || !current) return;
+  const closePosition = (position: Position) => {
+    if (!current) return;
     const exit = current.close * (position.side === "LONG" ? 1 - SLIPPAGE_RATE : 1 + SLIPPAGE_RATE);
     const exitFee = position.margin * position.leverage * TAKER_FEE_RATE;
     const change = ((exit / position.mark) - 1) * (position.side === "LONG" ? 1 : -1) * position.margin * position.leverage - exitFee;
     setPnl((value) => value + change);
     setLastChange({ side: position.side, entry: position.mark, exit, pnl: change });
-    setPosition(null);
-    setSide(null);
+    setPositions((items) => items.filter((item) => item.id !== position.id));
     setLog((items) => [`平倉 ${position.side}：$${formatPrice(position.mark)} → $${formatPrice(exit)} · 本次 ${change >= 0 ? "+" : ""}${change.toFixed(2)} U`, ...items].slice(0, 4));
   };
 
@@ -257,24 +250,23 @@ export default function Home() {
     const xpEarned = isCorrect ? decision === "WAIT" ? 70 : 100 : 0;
     const nextStreak = isCorrect ? streak + 1 : 0;
     let pnlDelta = 0;
-    let exposure = "空手觀察；帳戶 P&L 維持不變。";
-    let nextPosition: Position | null = position;
-    let closedChange: { side: string; entry: number; exit: number; pnl: number } | null = null;
-    if (position) {
-      const bothTouched = position.side === "LONG" ? next.low <= position.stop && next.high >= position.target : next.high >= position.stop && next.low <= position.target;
+    const positionNotes: string[] = [];
+    const closedChanges: Array<{ side: string; entry: number; exit: number; pnl: number }> = [];
+    const nextPositions = positions.flatMap((position) => {
       const stopped = position.side === "LONG" ? next.low <= position.stop : next.high >= position.stop;
-      const targeted = position.side === "LONG" ? next.high >= position.target : next.low <= position.target;
-      const trigger = bothTouched || stopped ? position.stop : targeted ? position.target : next.close;
-      const closed = bothTouched || stopped || targeted;
-      const exit = closed ? trigger * (position.side === "LONG" ? 1 - SLIPPAGE_RATE : 1 + SLIPPAGE_RATE) : next.close;
-      const exitFee = closed ? position.margin * position.leverage * TAKER_FEE_RATE : 0;
-      pnlDelta = ((exit / position.mark) - 1) * (position.side === "LONG" ? 1 : -1) * position.margin * position.leverage - exitFee;
-      exposure = closed
-        ? (bothTouched || stopped ? `停損觸發，已以 $${formatPrice(exit)} 平倉。` : `目標觸發，已以 $${formatPrice(exit)} 平倉。`)
-        : `${position.side} 持倉續留，已按收盤價重新標記。`;
-      nextPosition = closed ? null : { ...position, mark: next.close };
-      if (closed) closedChange = { side: position.side, entry: position.mark, exit, pnl: pnlDelta };
-    }
+      const exit = stopped ? position.stop * (position.side === "LONG" ? 1 - SLIPPAGE_RATE : 1 + SLIPPAGE_RATE) : next.close;
+      const exitFee = stopped ? position.margin * position.leverage * TAKER_FEE_RATE : 0;
+      const change = ((exit / position.mark) - 1) * (position.side === "LONG" ? 1 : -1) * position.margin * position.leverage - exitFee;
+      pnlDelta += change;
+      if (stopped) {
+        positionNotes.push(`${position.side} 停損觸發。`);
+        closedChanges.push({ side: position.side, entry: position.mark, exit, pnl: change });
+        return [];
+      }
+      positionNotes.push(`${position.side} 續留並重新標記。`);
+      return [{ ...position, mark: next.close }];
+    });
+    const exposure = positions.length ? positionNotes.join(" ") : "空手觀察；帳戶 P&L 維持不變。";
     const nextPnl = pnl + pnlDelta;
     const nextStats = { decisions: stats.decisions + 1, correct: stats.correct + (isCorrect ? 1 : 0) };
     const hitTarget = nextPnl >= PROFIT_TARGET;
@@ -298,9 +290,9 @@ export default function Home() {
     setLastInsight(insight);
     setVisible((value) => value + 1);
     setSide(null);
-    setPosition(nextPosition);
-    if (closedChange) setLastChange(closedChange);
-    setFeedback({ decision, correct: isCorrect, candleReturn, pnlDelta, exposure: timedOut ? `時間到，自動以 ${decision} 揭露。${exposure}` : exposure, disciplineNote: position?.disciplineNote, insight, xpEarned, streak: nextStreak, finalResult });
+    setPositions(nextPositions);
+    if (closedChanges[0]) setLastChange(closedChanges[0]);
+    setFeedback({ decision, correct: isCorrect, candleReturn, pnlDelta, exposure: timedOut ? `時間到，自動以 ${decision} 揭露。${exposure}` : exposure, disciplineNote: positions.map((item) => item.disciplineNote).filter(Boolean).join(" · ") || undefined, insight, xpEarned, streak: nextStreak, finalResult });
     setLog((items) => [`${decision} · 下一根 ${isUp ? "上漲" : "下跌"} ${candleReturn.toFixed(2)}% · ${exposure}`, ...items].slice(0, 4));
   };
 
@@ -324,7 +316,7 @@ export default function Home() {
   }, [roundMode, timeLeft, canReveal, feedback, tradePlan, side]);
 
   const planEntry = current ? current.close * (tradePlan?.side === "LONG" ? 1 + SLIPPAGE_RATE : 1 - SLIPPAGE_RATE) : 0;
-  const planRisk = tradePlan ? tradePlan.margin * leverage * (tradePlan.stopPct / 100) : 0;
+  const planRisk = tradePlan ? tradePlan.margin * tradePlan.leverage * (tradePlan.stopPct / 100) : 0;
 
   return (
     <main className="app-shell">
@@ -357,7 +349,6 @@ export default function Home() {
             <TrainingChart candles={candles} visible={visible} loading={!candles.length && !error} />
             <div className="fog real-fog"><span>未揭露行情</span><strong>{Math.max(0, candles.length - visible)} 根 K 線</strong></div>
             {error && <div className="chart-error">{error}<button onClick={() => setRoundKey((value) => value + 1)}>重試</button></div>}
-            {tradePlan && <div className="result-overlay"><div className="result-card trade-plan-card"><p className="eyebrow">TRADE PLAN · {tradePlan.side}</p><h2>先定風險，再進場。</h2><label>停損距離 <b>{tradePlan.stopPct.toFixed(1)}%</b><input aria-label="停損距離" type="range" min="0.3" max="3" step="0.1" value={tradePlan.stopPct} onChange={(event) => setTradePlan((plan) => plan ? { ...plan, stopPct: Number(event.target.value) } : plan)} /></label><label>目標 R 倍數 <b>{tradePlan.targetR.toFixed(1)}R</b><input aria-label="目標 R 倍數" type="range" min="1" max="4" step="0.5" value={tradePlan.targetR} onChange={(event) => setTradePlan((plan) => plan ? { ...plan, targetR: Number(event.target.value) } : plan)} /></label><div className="plan-preview"><span>預估進場 <b>${formatPrice(planEntry)}</b></span><span>預估風險 <b>{planRisk.toFixed(2)} U</b></span></div><button className="reveal-button" onClick={confirmTradePlan}>確認 {tradePlan.side} 進場 <span>→</span></button><button className="plan-cancel" onClick={() => setTradePlan(null)}>取消</button></div></div>}
             {feedback && <div className="result-overlay"><div className="result-card feedback-card"><p className="eyebrow">{feedback.finalResult ? "FINAL DECISION" : "DECISION RESULT"} · {feedback.xpEarned > 0 ? `+${feedback.xpEarned} XP` : "REVIEW"}</p><h2>你選擇 {feedback.decision}</h2><p className={feedback.correct ? "up" : "down"}>{feedback.correct ? `讀對了。連勝 ${feedback.streak} 根。` : "這根沒讀對，但它正是下一次的教材。"}</p><div className="result-metrics"><div><span>下一根變化</span><b className={feedback.candleReturn >= 0 ? "up" : "down"}>{feedback.candleReturn >= 0 ? "+" : ""}{feedback.candleReturn.toFixed(2)}%</b></div><div><span>帳戶變化</span><b className={feedback.pnlDelta >= 0 ? "up" : "down"}>{feedback.pnlDelta >= 0 ? "+" : ""}{feedback.pnlDelta.toFixed(2)} U</b></div><div><span>紀律分數</span><b>{discipline}</b></div></div><div className="coach-callout"><span>{feedback.insight.label} · {feedback.insight.pattern}</span><p>{feedback.insight.explanation}</p><small>下一次：{feedback.insight.nextFocus}</small></div><p>{feedback.exposure}{feedback.disciplineNote ? ` 紀律提醒：${feedback.disciplineNote}` : ""}</p><button className="reveal-button" onClick={continueAfterFeedback}>{feedback.finalResult ? "查看本局結算" : "繼續下一根 K 線"}<span>→</span></button></div></div>}
           </div>
           <footer className="chart-footer"><span>{status}</span><div className="progress"><i style={{ width: `${(turnsComplete / roundBars) * 100}%` }} /></div><span>Chart by TradingView™</span></footer>
@@ -367,10 +358,11 @@ export default function Home() {
         <aside className="decision-panel">
           <div className="panel-heading"><span>03</span><div><h2>你的判斷</h2><p>{roundMode === "QUICK" ? `剩餘 ${timeLeft} 秒；逾時自動揭露` : "每根 K 線只能選一次"}</p></div></div>
           <div className="decision-buttons"><button className={side === "LONG" || tradePlan?.side === "LONG" ? "chosen long" : "long"} onClick={() => choose("LONG")}><small>看多</small><strong>LONG</strong><span>突破／延續</span></button><button className={side === "SHORT" || tradePlan?.side === "SHORT" ? "chosen short" : "short"} onClick={() => choose("SHORT")}><small>看空</small><strong>SHORT</strong><span>跌破／轉弱</span></button><button className={side === "WAIT" ? "chosen wait" : "wait"} onClick={() => choose("WAIT")}><small>觀望</small><strong>WAIT</strong><span>等待確認</span></button></div>
-          <div className="position-card"><div className="position-head"><span>Prop 帳戶 · 權益 {equity.toLocaleString(undefined, { maximumFractionDigits: 0 })} U</span><b className={accountStatus === "ACTIVE" || accountStatus === "PASSED" ? "open" : "flat"}>{accountStatus}</b></div>{position ? <div className="position-values"><strong className={position.side === "LONG" ? "up" : "down"}>{position.side}</strong><span>進場 ${formatPrice(position.entry)} · 標記 ${formatPrice(position.mark)}</span><small>停損 ${formatPrice(position.stop)} · 目標 ${formatPrice(position.target)} · {position.leverage}×</small><button className="close-position" onClick={closePosition}>平倉</button></div> : lastChange ? <div className="position-values"><strong>上一筆已平倉</strong><span>${formatPrice(lastChange.entry)} → ${formatPrice(lastChange.exit)}</span><small className={lastChange.pnl >= 0 ? "up" : "down"}>最近變化 {lastChange.pnl >= 0 ? "+" : ""}{lastChange.pnl.toFixed(2)} U</small></div> : <div className="position-values"><strong>FLAT</strong><span>起始 Prop 模擬帳戶 {STARTING_BALANCE.toLocaleString()} U</span><small>WAIT 僅空手觀察；持倉中需先平倉。</small></div>}</div>
+          <div className="position-card"><div className="position-head"><span>Prop 帳戶 · 權益 {equity.toLocaleString(undefined, { maximumFractionDigits: 0 })} U</span><b className={accountStatus === "ACTIVE" || accountStatus === "PASSED" ? "open" : "flat"}>{accountStatus}</b></div>{positions.length ? <div className="position-stack">{positions.map((position) => <div className="position-values" key={position.id}><strong className={position.side === "LONG" ? "up" : "down"}>{position.side}</strong><span>進場 ${formatPrice(position.entry)} · 標記 ${formatPrice(position.mark)}</span><small>停損 ${formatPrice(position.stop)} · {position.leverage}× · 可與反向部位同持</small><button className="close-position" onClick={() => closePosition(position)}>平倉</button></div>)}</div> : lastChange ? <div className="position-values"><strong>上一筆已平倉</strong><span>${formatPrice(lastChange.entry)} → ${formatPrice(lastChange.exit)}</span><small className={lastChange.pnl >= 0 ? "up" : "down"}>最近變化 {lastChange.pnl >= 0 ? "+" : ""}{lastChange.pnl.toFixed(2)} U</small></div> : <div className="position-values"><strong>FLAT</strong><span>起始 Prop 模擬帳戶 {STARTING_BALANCE.toLocaleString()} U</span><small>可同時持有 LONG 與 SHORT；WAIT 也能繼續。</small></div>}</div>
           <button className="reveal-button" disabled={!canReveal} onClick={() => reveal()}>{canReveal ? "揭露下一根真實 K 線" : feedback ? "先查看決策結果" : tradePlan ? "先完成進場計畫" : "本局結算中"}<span>→</span></button>
           <div className="score-card"><div><span>紀律分數（起始 100）</span><strong>{discipline}<small>/100</small></strong></div><div className="xp-score"><span>回合 XP</span><b>{roundXp}</b><small>連勝 {streak} · 最佳 {bestStreak}</small></div><div className="score-ring" style={{ "--score": `${discipline}%` } as React.CSSProperties}><b>{discipline}</b></div></div>
           <div className="pnl-strip"><span>帳戶模擬 P&amp;L</span><b className={pnl >= 0 ? "up" : "down"}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)} U</b></div>
+          {tradePlan && <div className="trade-plan-side"><div className="trade-plan-card"><p className="eyebrow">TRADE PLAN · {tradePlan.side}</p><h2>保留圖表，設定風險。</h2><label>停損距離 <b>{tradePlan.stopPct.toFixed(1)}%</b><input aria-label="停損距離" type="range" min="0.3" max="3" step="0.1" value={tradePlan.stopPct} onChange={(event) => setTradePlan((plan) => plan ? { ...plan, stopPct: Number(event.target.value) } : plan)} /></label><label>槓桿倍數 <b>{tradePlan.leverage}×</b><input aria-label="交易計畫槓桿" type="range" min="1" max="20" value={tradePlan.leverage} onChange={(event) => setTradePlan((plan) => plan ? { ...plan, leverage: Number(event.target.value) } : plan)} /></label><div className="plan-preview"><span>預估進場 <b>${formatPrice(planEntry)}</b></span><span>預估停損風險 <b>{planRisk.toFixed(2)} U</b></span></div><button className="reveal-button" onClick={confirmTradePlan}>確認 {tradePlan.side} 進場 <span>→</span></button><button className="plan-cancel" onClick={() => setTradePlan(null)}>取消</button></div></div>}
         </aside>
       </section>
 
