@@ -217,16 +217,52 @@ export default function DrillRunner() {
   return (
     <main className="viewport">
       <header className="row-between">
-        <div>
+        {/* Takes whatever the controls leave. A fixed measure here only bought
+            a dead column and an extra wrapped line. */}
+        <div style={{ flex: 1, minWidth: 0 }}>
           <p className="eyebrow">
             <Link href="/train">訓練</Link> · {meta.title}
           </p>
           <h1>{meta.title}</h1>
-          <p className="note" style={{ marginTop: 6, maxWidth: "72ch" }}>
+          <p className="note" style={{ marginTop: 6 }}>
             {meta.why}
           </p>
         </div>
-        <div className="row">
+        <div className="row" style={{ flex: "none" }}>
+          {/* Market pickers live in the header rather than in a card of their
+              own. They are set once and rarely touched, and a full-width row
+              for two dropdowns was taking ~120px from the chart every time. */}
+          {meta.needsMarket && (
+            <div className="row compact-controls">
+              <select
+                aria-label="合約"
+                className="compact-select"
+                value={symbol}
+                onChange={(event) => setSymbol(event.target.value)}
+              >
+                {SYMBOLS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="K 線週期"
+                className="compact-select"
+                value={interval}
+                onChange={(event) => setIntervalChoice(event.target.value as Interval)}
+              >
+                {INTERVALS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+              <button className="btn btn-sm btn-ghost" onClick={nextRound}>
+                換一題
+              </button>
+            </div>
+          )}
           {average !== null && (
             <div className="stat stat-sm">
               <span>本次連續</span>
@@ -245,37 +281,6 @@ export default function DrillRunner() {
           )}
         </div>
       </header>
-
-      {meta.needsMarket && (
-        <div className="card row" style={{ padding: 14 }}>
-          <label className="field" style={{ minWidth: 180 }}>
-            <span>合約</span>
-            <select value={symbol} onChange={(event) => setSymbol(event.target.value)}>
-              {SYMBOLS.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field" style={{ minWidth: 130 }}>
-            <span>K 線週期</span>
-            <select
-              value={interval}
-              onChange={(event) => setIntervalChoice(event.target.value as Interval)}
-            >
-              {INTERVALS.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="btn btn-sm btn-ghost" style={{ marginLeft: "auto" }} onClick={nextRound}>
-            換一題
-          </button>
-        </div>
-      )}
 
       {locked && preview && (
         <div className="banner">
