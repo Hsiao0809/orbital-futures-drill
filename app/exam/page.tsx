@@ -332,7 +332,7 @@ export default function ExamSimulator() {
   // --- setup ----------------------------------------------------------------
   if (phase === "SETUP") {
     return (
-      <main className="stack-lg">
+      <main className="viewport">
         <header className="page-head">
           <p className="eyebrow">考試模擬</p>
           <h1>在真實規則壓力下跑完一整段行情。</h1>
@@ -415,7 +415,7 @@ export default function ExamSimulator() {
     // "blocked by the soft rules"; everything else simply fell short.
     const targetMet = finalMetrics.profitRemaining <= 0;
     return (
-      <main className="stack-lg">
+      <main className="viewport">
         <header className="stack">
           <p className="eyebrow">考試結果 · {rules.label}</p>
           <div className="row">
@@ -537,7 +537,7 @@ export default function ExamSimulator() {
   const barsLeft = candles.length - 1 - cursor;
 
   return (
-    <main className="stack">
+    <main className="viewport">
       <header className="row-between">
         <div>
           <p className="eyebrow">{rules.label} · {symbol} {interval}</p>
@@ -556,8 +556,8 @@ export default function ExamSimulator() {
       </header>
 
       <div className="split-wide">
-        <div className="stack">
-          <Chart candles={candles} visible={cursor + 1} lines={lines} height={420} />
+        <div className="stack chart-column">
+          <Chart candles={candles} visible={cursor + 1} lines={lines} fill />
 
           <div className="card row" style={{ padding: 12 }}>
             <button className="btn" onClick={advanceOne} disabled={barsLeft <= 0}>
@@ -606,25 +606,23 @@ export default function ExamSimulator() {
               </label>
             </div>
 
+            {/* One compact row rather than four tiles: the submit button below
+                must stay on screen at laptop heights, and these figures are
+                confirmations rather than things to study. */}
             {sizing && (
-              <div className="grid-4">
-                <div className="stat stat-sm">
-                  <span>口數</span><b className="num">{sizing.qty.toFixed(4)}</b>
-                </div>
-                <div className="stat stat-sm">
-                  <span>名目價值</span><b className="num">{money(sizing.notional)} U</b>
-                </div>
-                <div className="stat stat-sm">
-                  <span>停損虧損</span>
+              <div className="ticket-summary">
+                <span>口數 <b className="num">{sizing.qty.toFixed(4)}</b></span>
+                <span>名目 <b className="num">{money(sizing.notional)} U</b></span>
+                <span>
+                  停損虧損{" "}
                   <b className={`num ${sizing.riskUsd > defensible.riskUsd ? "down" : "warn"}`}>
                     {sizing.riskUsd.toFixed(2)} U
                   </b>
-                </div>
-                <div className="stat stat-sm">
-                  <span>建議風險上限</span>
-                  <b className="num">{defensible.riskUsd.toFixed(2)} U</b>
+                </span>
+                <span>
+                  建議上限 <b className="num">{defensible.riskUsd.toFixed(2)} U</b>
                   <i>{defensible.limitedBy === "BASE" ? "依計畫風險" : "受剩餘限額壓縮"}</i>
-                </div>
+                </span>
               </div>
             )}
 

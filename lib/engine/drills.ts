@@ -68,7 +68,7 @@ export const DRILLS: DrillMeta[] = [
     title: "停損放置",
     skill: "READ",
     blurb: "決定這筆交易的無效化價位。",
-    why: "停損放在雜訊裡會被反覆掃掉，放太寬又讓部位小到沒意義。評分同時看「有沒有躲過掃損」與「效率」。",
+    why: "停損放在雜訊裡會被反覆掃掉，放太寬又讓部位小到沒意義。只評下單前判斷得出來的東西，不評事後運氣；沒達標會直接告訴你建議位置。",
     seconds: 50,
     needsMarket: true,
   },
@@ -190,6 +190,11 @@ export type Grade = {
   breakdown: Array<{ label: string; points: number; max: number; note: string }>;
   /** The teaching point. */
   lesson: string;
+  /**
+   * What a good answer looked like. Shown when the learner falls short —
+   * being told only that you scored 62 teaches nothing about where to aim.
+   */
+  suggestion?: { label: string; value: string; why: string };
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -406,18 +411,45 @@ export function syntheticAccount(
   };
 }
 
-const SIZING_SYMBOLS: Array<{ symbol: string; price: number }> = [
-  { symbol: "BTCUSDT", price: 64000 },
-  { symbol: "ETHUSDT", price: 3100 },
-  { symbol: "SOLUSDT", price: 148 },
-  { symbol: "BNBUSDT", price: 570 },
-  { symbol: "LINKUSDT", price: 14.2 },
-  { symbol: "ARBUSDT", price: 0.82 },
+/**
+ * Reference prices with their tick size. The tick matters: rounding a 0.82
+ * asset to two decimals used to collapse entry and stop onto the same price on
+ * 3% of generated questions, producing an unanswerable scenario whose "correct"
+ * answer was zero for the wrong reason.
+ */
+const SIZING_SYMBOLS: Array<{ symbol: string; price: number; tick: number }> = [
+  { symbol: "BTCUSDT", price: 64000, tick: 0.1 },
+  { symbol: "ETHUSDT", price: 3100, tick: 0.01 },
+  { symbol: "BNBUSDT", price: 570, tick: 0.01 },
+  { symbol: "SOLUSDT", price: 148, tick: 0.01 },
+  { symbol: "AVAXUSDT", price: 27.4, tick: 0.001 },
+  { symbol: "LINKUSDT", price: 14.2, tick: 0.001 },
+  { symbol: "TIAUSDT", price: 5.6, tick: 0.0001 },
+  { symbol: "SUIUSDT", price: 3.4, tick: 0.0001 },
+  { symbol: "XRPUSDT", price: 2.1, tick: 0.0001 },
+  { symbol: "ARBUSDT", price: 0.82, tick: 0.0001 },
+  { symbol: "DOGEUSDT", price: 0.19, tick: 0.00001 },
+  { symbol: "1000PEPEUSDT", price: 0.0092, tick: 0.0000001 },
+];
+
+/** Snap to the instrument's tick, without float dust. */
+function toTick(value: number, tick: number): number {
+  const decimals = Math.max(0, Math.round(-Math.log10(tick)));
+  return Number((Math.round(value / tick) * tick).toFixed(decimals));
+}
+
+const SIZING_RULE_POOL = [
+  "bootcamp-1k",
+  "crypto-2step-p1",
+  "crypto-2step-p2",
+  "crypto-1step-trailing",
+  "crypto-instant-5k",
+  "crypto-eod-trailing",
 ];
 
 export function generateSizing(seed: string, ruleSetId?: string): SizingScenario {
   const rng = createRng(seed);
-  const rules = getRuleSet(ruleSetId ?? pick(rng, ["bootcamp-1k", "crypto-2step-p1", "crypto-1step-trailing"]));
+  const rules = getRuleSet(ruleSetId ?? pick(rng, SIZING_RULE_POOL));
 
   // Put the account somewhere between -3% and +6%, mid-day, with some history.
   const drift = (rng() * 0.09 - 0.03) * rules.initialBalance;
@@ -436,12 +468,19 @@ export function generateSizing(seed: string, ruleSetId?: string): SizingScenario
   });
 
   const market = pick(rng, SIZING_SYMBOLS);
-  const jitter = 1 + (rng() - 0.5) * 0.08;
-  const entry = round(market.price * jitter);
+  const jitter = 1 + (rng() - 0.5) * 0.16;
+  const entry = toTick(market.price * jitter, market.tick);
   const side: Side = rng() > 0.5 ? "LONG" : "SHORT";
-  const stopPct = 0.004 + rng() * 0.016; // 0.4% .. 2.0%
-  const stop = round(side === "LONG" ? entry * (1 - stopPct) : entry * (1 + stopPct));
-  const riskPct = pick(rng, [0.005, 0.0075, 0.01]);
+  const stopPct = 0.003 + rng() * 0.022; // 0.3% .. 2.5%
+  const direction = side === "LONG" ? -1 : 1;
+  // Snap the stop to the tick, then guarantee it is a few ticks clear of entry
+  // so the question always has a finite answer.
+  const rawStop = toTick(entry * (1 + direction * stopPct), market.tick);
+  const stop =
+    Math.abs(rawStop - entry) >= market.tick * 3
+      ? rawStop
+      : toTick(entry + direction * market.tick * 3, market.tick);
+  const riskPct = pick(rng, [0.0025, 0.005, 0.0075, 0.01, 0.0125, 0.015]);
 
   const metrics = evaluate(account, equity);
   const situation =
@@ -536,7 +575,12 @@ export function gradeSizing(scenario: SizingScenario, answer: SizingAnswer): Gra
     },
   ];
 
-  const safe = impliedRisk <= metrics.bindingRoom / 3 + 1e-6;
+  // Relative, not absolute. When the room cap binds, the correct answer sits
+  // exactly on this boundary, so an absolute 1e-6 slack meant a learner typing
+  // a rounded decimal lost all 25 points for the right answer — capping the
+  // score at 75 and making those questions impossible to master.
+  const perTradeCap = metrics.bindingRoom / 3;
+  const safe = impliedRisk <= perTradeCap * 1.01 + 1e-9;
   breakdown.push({
     label: "限額安全性",
     points: safe ? 25 : ratio > 1 ? 0 : 12,
@@ -596,11 +640,85 @@ export function generateStop(
 
 export type StopAnswer = { stop: number };
 
+/**
+ * The largest single-bar move against `side` in the recent visible window,
+ * in ATR. This is the noise a stop has to clear, and crucially it is
+ * observable at the moment of the decision — unlike whether the stop was
+ * actually swept, which is an outcome the learner cannot influence.
+ */
+export function observableNoise(scenario: StopScenario, lookback = 20): number {
+  const anchor = scenario.visibleCount - 1;
+  const range = scenario.atr || 1e-9;
+  let worst = 0;
+  for (let index = Math.max(1, anchor - lookback + 1); index <= anchor; index += 1) {
+    const candle = scenario.candles[index];
+    const adverse =
+      scenario.side === "LONG" ? candle.close - candle.low : candle.high - candle.close;
+    worst = Math.max(worst, adverse / range);
+  }
+  return worst;
+}
+
+/** Nearest swing level the stop should sit behind, if the window has one. */
+export function invalidationLevel(scenario: StopScenario): number | undefined {
+  const window = scenario.candles.slice(0, scenario.visibleCount);
+  const points = swingPoints(window, 2);
+  return scenario.side === "LONG"
+    ? points.filter((p) => p.kind === "LOW" && p.price < scenario.entry).map((p) => p.price).sort((a, b) => b - a)[0]
+    : points.filter((p) => p.kind === "HIGH" && p.price > scenario.entry).map((p) => p.price).sort((a, b) => a - b)[0];
+}
+
+/**
+ * A defensible stop for this setup: behind the nearest invalidation level with
+ * a small buffer, otherwise just clear of the observable noise — then clamped
+ * into the range where the position size still means something.
+ */
+export function suggestStop(scenario: StopScenario): { price: number; atrUnits: number; why: string } {
+  const direction = scenario.side === "LONG" ? -1 : 1;
+  const reference = invalidationLevel(scenario);
+  const noise = observableNoise(scenario);
+  // Clearing the noise is non-negotiable — a stop inside it is not a stop.
+  // The margin is deliberately above the 1.15 the grader wants, so the
+  // suggestion does not land exactly on its own threshold and lose points to
+  // floating-point rounding.
+  const floor = Math.max(0.8, noise * 1.25);
+
+  let atrUnits: number;
+  let why: string;
+  if (reference !== undefined) {
+    const beyond = Math.abs(scenario.entry - reference) / scenario.atr + 0.25;
+    atrUnits = clamp(Math.max(beyond, floor), floor, 3);
+    why =
+      `最近的結構${scenario.side === "LONG" ? "低點" : "高點"}在 ${reference.toFixed(4)}，` +
+      `放在它之外約 0.25 ATR；同時至少要蓋過近期單根最大逆向影線 ${noise.toFixed(2)} ATR。`;
+  } else {
+    atrUnits = clamp(floor, 0.8, 3);
+    why = `這段沒有明顯的結構點，改用波動判斷：近期單根最大逆向影線 ${noise.toFixed(2)} ATR，留 25% 緩衝。`;
+  }
+  return { price: scenario.entry + direction * scenario.atr * atrUnits, atrUnits, why };
+}
+
+/**
+ * Grading is on the decision, not the outcome.
+ *
+ * An earlier version put 40 of 100 points on whether the stop was actually
+ * swept. Across a sample of 120 generated scenarios that made the *best
+ * achievable* score fall below the 80 mastery threshold on 38% of them: the
+ * learner could pick the single best stop on the slider and still be unable to
+ * pass, because the tape had already decided. That is the same luck-scoring
+ * mistake the bias drill deliberately avoids.
+ *
+ * What is scored now is knowable before the candle prints: is the stop behind
+ * a real invalidation level, does it clear the noise this market has recently
+ * been producing, and is it tight enough for the position to be worth taking.
+ * What actually happened is reported as feedback instead.
+ */
 export function gradeStop(scenario: StopScenario, answer: StopAnswer): Grade {
   const anchor = scenario.visibleCount - 1;
   const long = scenario.side === "LONG";
   const distance = Math.abs(scenario.entry - answer.stop);
   const atrUnits = scenario.atr ? distance / scenario.atr : 0;
+  const suggested = suggestStop(scenario);
 
   const wrongSide = long ? answer.stop >= scenario.entry : answer.stop <= scenario.entry;
   if (wrongSide || distance <= 0) {
@@ -609,38 +727,51 @@ export function gradeStop(scenario: StopScenario, answer: StopAnswer): Grade {
       verdict: "停損方向錯誤",
       breakdown: [{ label: "有效性", points: 0, max: 100, note: "停損必須放在進場價的不利側。" }],
       lesson: "做多的停損在下方，做空的停損在上方。這一步錯，後面的部位計算全部無效。",
+      suggestion: {
+        label: "建議停損",
+        value: `${suggested.price.toFixed(4)}（${suggested.atrUnits.toFixed(2)} ATR）`,
+        why: suggested.why,
+      },
     };
   }
 
-  // 1. Behind a real invalidation level?
-  const window = scenario.candles.slice(0, scenario.visibleCount);
-  const points = swingPoints(window, 2);
-  const reference = long
-    ? points.filter((point) => point.kind === "LOW" && point.price < scenario.entry).map((point) => point.price).sort((a, b) => b - a)[0]
-    : points.filter((point) => point.kind === "HIGH" && point.price > scenario.entry).map((point) => point.price).sort((a, b) => a - b)[0];
+  // Scored against the stop that reconciles all three pressures, so a perfect
+  // score is always reachable. Grading each pressure independently made them
+  // mutually unsatisfiable whenever the nearest structure sat inside the noise
+  // band — the learner could not win no matter what they picked.
+  const reference = invalidationLevel(scenario);
+  const drift = Math.abs(atrUnits - suggested.atrUnits) / Math.max(suggested.atrUnits, 1e-9);
+  const placementPoints = Math.round(clamp(1 - Math.max(0, drift - 0.25) / 0.75, 0, 1) * 70);
+  const placementNote =
+    drift <= 0.25
+      ? `${atrUnits.toFixed(2)} ATR，落在這個設定的合理區間內。`
+      : `${atrUnits.toFixed(2)} ATR，離合理位置 ${suggested.atrUnits.toFixed(2)} ATR 偏離 ${(drift * 100).toFixed(0)}%。` +
+        (atrUnits < suggested.atrUnits
+          ? reference !== undefined
+            ? `太近了——結構${long ? "低點" : "高點"}在 ${reference.toFixed(4)}，停在它之內等於自願被掃。`
+            : "太近了，還在近期波動範圍內。"
+          : "太遠了，同樣的風險金額只能換到很小的部位。");
 
-  let structurePoints = 15;
-  let structureNote = "近期沒有明顯的結構點可以參考，此時應以波動度（ATR）為主要依據。";
-  if (reference !== undefined) {
-    const beyond = long ? answer.stop < reference : answer.stop > reference;
-    const buffer = Math.abs(answer.stop - reference) / Math.max(scenario.atr, 1e-9);
-    if (beyond && buffer <= 0.6) {
-      structurePoints = 35;
-      structureNote = `停損放在最近的結構${long ? "低點" : "高點"} ${reference.toFixed(4)} 之外，緩衝 ${buffer.toFixed(2)} ATR，這是教科書位置。`;
-    } else if (beyond) {
-      structurePoints = 22;
-      structureNote = `停損確實在結構${long ? "低點" : "高點"} ${reference.toFixed(4)} 之外，但緩衝 ${buffer.toFixed(2)} ATR 過寬，白白放大了風險。`;
-    } else {
-      structurePoints = 5;
-      structureNote = `停損落在結構${long ? "低點" : "高點"} ${reference.toFixed(4)} 之內，等於把單子放在最容易被掃到的位置。`;
-    }
+  const noise = observableNoise(scenario);
+  const clearance = noise > 0 ? atrUnits / noise : 2;
+  let noisePoints: number;
+  let noiseNote: string;
+  if (clearance >= 1.15) {
+    noisePoints = 30;
+    noiseNote = `近期單根最大逆向影線 ${noise.toFixed(2)} ATR，你的停損在它之外，不會被一般波動掃到。`;
+  } else if (clearance >= 0.85) {
+    noisePoints = 17;
+    noiseNote = `停損幾乎貼著近期最大逆向影線 ${noise.toFixed(2)} ATR，容錯很小。`;
+  } else {
+    noisePoints = Math.round(clamp(clearance / 0.85, 0, 1) * 10);
+    noiseNote = `停損落在近期雜訊範圍（單根最大逆向 ${noise.toFixed(2)} ATR）之內，被掃只是時間問題。`;
   }
 
-  // 2. Did it survive? Path-aware over the hidden bars.
+  // What actually happened — reported, not scored. ---------------------------
   const end = Math.min(scenario.candles.length - 1, anchor + scenario.horizon);
+  const target = long ? scenario.entry + scenario.atr * 1.5 : scenario.entry - scenario.atr * 1.5;
   let sweptAt: number | null = null;
   let reachedTarget = false;
-  const target = long ? scenario.entry + scenario.atr * 1.5 : scenario.entry - scenario.atr * 1.5;
   for (let index = anchor + 1; index <= end; index += 1) {
     const candle = scenario.candles[index];
     const stopped = long ? candle.low <= answer.stop : candle.high >= answer.stop;
@@ -649,58 +780,33 @@ export function gradeStop(scenario: StopScenario, answer: StopAnswer): Grade {
     if (hitTarget && sweptAt === null) { reachedTarget = true; break; }
     if (stopped) break;
   }
+  const outcome = reachedTarget
+    ? "後續發展：沒有被掃到，價格走到了 +1.5 ATR。"
+    : sweptAt === null
+      ? "後續發展：沒有被掃到，但行情也沒走到目標。"
+      : `後續發展：第 ${sweptAt - anchor} 根 K 線觸發了這個停損。`;
 
-  let survivalPoints: number;
-  let survivalNote: string;
-  if (reachedTarget) {
-    survivalPoints = 40;
-    survivalNote = `停損沒有被掃到，價格先走到 +1.5 ATR 的目標。這個位置經得起這段行情的雜訊。`;
-  } else if (sweptAt === null) {
-    survivalPoints = 28;
-    survivalNote = "停損沒有被觸發，但行情也沒有走到目標。位置守住了，但這筆交易本身沒有效率。";
-  } else {
-    // Was the stop-out a rescue or a robbery?
-    let recovered = false;
-    for (let index = sweptAt; index <= end; index += 1) {
-      const candle = scenario.candles[index];
-      if (long ? candle.high >= target : candle.low <= target) { recovered = true; break; }
-    }
-    survivalPoints = recovered ? 4 : 22;
-    survivalNote = recovered
-      ? `第 ${sweptAt - anchor} 根 K 線掃到停損，而且之後行情仍然走到了 +1.5 ATR。這是典型的「被雜訊洗出場」。`
-      : `第 ${sweptAt - anchor} 根 K 線觸發停損，但行情之後也沒有回到目標——這個停損救了你，不是害了你。`;
-  }
-
-  // 3. Efficiency: 1.0-2.0 ATR is the sweet spot.
-  let efficiencyPoints: number;
-  let efficiencyNote: string;
-  if (atrUnits < 0.5) {
-    efficiencyPoints = 4;
-    efficiencyNote = `停損只有 ${atrUnits.toFixed(2)} ATR，比單根 K 線的正常呼吸還窄，被掃是遲早的事。`;
-  } else if (atrUnits <= 2.2) {
-    efficiencyPoints = 25;
-    efficiencyNote = `停損 ${atrUnits.toFixed(2)} ATR，落在合理區間（0.8–2.2 ATR）。`;
-  } else if (atrUnits <= 3.5) {
-    efficiencyPoints = 12;
-    efficiencyNote = `停損 ${atrUnits.toFixed(2)} ATR 偏寬，同樣的風險金額只能換到很小的部位。`;
-  } else {
-    efficiencyPoints = 2;
-    efficiencyNote = `停損 ${atrUnits.toFixed(2)} ATR 過寬，實質上接近沒有停損。`;
-  }
-
-  const score = clamp(structurePoints + survivalPoints + efficiencyPoints, 0, 100);
-  return {
+  const score = clamp(placementPoints + noisePoints, 0, 100);
+  const grade: Grade = {
     score,
     verdict: score >= 80 ? "位置良好" : score >= 55 ? "可用但不理想" : "位置有問題",
     breakdown: [
-      { label: "結構依據", points: structurePoints, max: 35, note: structureNote },
-      { label: "抗雜訊", points: survivalPoints, max: 40, note: survivalNote },
-      { label: "效率", points: efficiencyPoints, max: 25, note: efficiencyNote },
+      { label: "位置", points: placementPoints, max: 70, note: placementNote },
+      { label: "抗雜訊", points: noisePoints, max: 30, note: noiseNote },
     ],
     lesson:
-      "好的停損同時滿足兩件事：放在「如果到這裡，我的看法就錯了」的位置，而且離進場不超過約 2 ATR。" +
-      "只滿足第一件會讓部位小到沒意義，只滿足第二件會被反覆掃損。",
+      "好的停損要同時放在「到這裡我就看錯了」的結構之外，而且遠到不會被這個市場的日常波動掃到——" +
+      "但又不能遠到部位小得沒有意義。這些在下單前全都判斷得出來。" +
+      `事後有沒有被掃到不列入評分，因為那不是你當下能決定的事。${outcome}`,
   };
+  if (score < 80) {
+    grade.suggestion = {
+      label: "建議停損",
+      value: `${suggested.price.toFixed(4)}（${suggested.atrUnits.toFixed(2)} ATR）`,
+      why: suggested.why,
+    };
+  }
+  return grade;
 }
 
 // ---------------------------------------------------------------------------

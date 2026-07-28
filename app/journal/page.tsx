@@ -57,7 +57,7 @@ export default function Journal() {
   const totalFlags = Object.entries(profile.flagCounts).sort((a, b) => b[1] - a[1]);
 
   return (
-    <main className="stack-lg">
+    <main className="viewport">
       <header className="page-head">
         <p className="eyebrow">紀錄與診斷</p>
         <h1>你的錯誤有名字，而且會重複。</h1>
@@ -65,6 +65,8 @@ export default function Journal() {
           單看損益學不到東西。這裡把每次考試拆解成具體的行為模式，並統計哪些習慣反覆出現。
         </p>
       </header>
+
+      <div className="grow pane stack-lg">
 
       {/* --- recurring habits ------------------------------------------------ */}
       <section className="card stack">
@@ -255,6 +257,7 @@ export default function Journal() {
           清除所有進度
         </button>
       </section>
+      </div>
     </main>
   );
 }

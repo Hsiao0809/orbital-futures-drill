@@ -25,7 +25,7 @@ export default function TrainHub() {
     stages.find((state) => state.stage.drills.includes(drillId));
 
   return (
-    <main className="stack-lg">
+    <main className="viewport">
       <header className="page-head">
         <p className="eyebrow">訓練</p>
         <h1>六種題型，每一種對應一個會讓你出局的環節。</h1>
@@ -35,7 +35,7 @@ export default function TrainHub() {
         </p>
       </header>
 
-      <section className="drill-grid">
+      <section className="drill-grid grow pane">
         {DRILLS.map((drill) => {
           const open = unlocked.has(drill.id);
           const record = profile.mastery[drill.id];
@@ -51,7 +51,7 @@ export default function TrainHub() {
                 ) : open ? (
                   <span className="pill pill-lime">{drill.seconds} 秒 / 題</span>
                 ) : (
-                  <span className="pill pill-mute">🔒 未解鎖</span>
+                  <span className="pill pill-mute">🔒 未解鎖 · 可試做</span>
                 )}
               </div>
               <div className="row">
@@ -82,14 +82,18 @@ export default function TrainHub() {
             </>
           );
 
-          return open ? (
-            <Link key={drill.id} href={`/train/${drill.id}`} className="card drill-card">
+          // Locked drills stay clickable. The lock governs whether an attempt
+          // counts toward progression, not whether you may look at it — a wall
+          // of padlocks with nothing behind it teaches a new learner nothing
+          // about what they are being asked to work toward.
+          return (
+            <Link
+              key={drill.id}
+              href={`/train/${drill.id}`}
+              className={`card drill-card${open ? "" : " locked"}`}
+            >
               {card}
             </Link>
-          ) : (
-            <div key={drill.id} className="card drill-card locked">
-              {card}
-            </div>
           );
         })}
       </section>
