@@ -95,6 +95,23 @@ locked 100vh on a small screen puts content out of reach.
 The dashboard is the single exception: it is a reading surface, not a working
 one.
 
+**Unused width is spent as height.** On a page that cannot scroll, every
+paragraph capped short of its container wraps to an extra line, and every
+control that inflates to fill a stretched column steals rows from the chart.
+Two rules follow:
+
+- A measure cap (`max-width: 76ch` on `.lede`) belongs to prose sitting
+  directly on the page. Inside a card the card *is* the measure, so the cap is
+  removed there.
+- `.stack` is a flex column, never a grid. A grid's default
+  `align-content: stretch` inflates every auto row to fill a stretched
+  `.viewport .split` column — two dropdowns and a button spread over 660px of
+  card is what that looks like. Flex keeps rows at content height and leaves
+  the slack for `.grow` to claim deliberately.
+
+`layout-check` asserts both: no page-level scrolling, and body copy using at
+least 88% of its card's content width.
+
 The rule that matters underneath: **the thing the learner has to act on is
 never below the fold.** Teaching material buried under a risk readout, or a
 submit button pushed off the bottom of its column, may as well not exist. A

@@ -821,28 +821,44 @@ export function generateExit(
   horizon = 24,
 ): ExitScenario | null {
   const rng = createRng(seed);
-  const slice = sliceWindow(candles, rng, horizon);
-  if (!slice) return null;
-  const anchor = slice.visibleCount - 1;
-  const structure = readStructure(slice.candles, anchor);
-  const range = atr(slice.candles, anchor);
-  const side: Side = structure.bias === "DOWNTREND" ? "SHORT" : "LONG";
-  const entry = slice.candles[anchor].close;
-  return {
-    kind: "EXIT",
-    id: "exit",
-    seed,
-    symbol,
-    interval,
-    candles: slice.candles,
-    visibleCount: slice.visibleCount,
-    structure,
-    atr: range,
-    side,
-    entry,
-    stop: side === "LONG" ? entry - range * 1.2 : entry + range * 1.2,
-    horizon,
+
+  const build = (): ExitScenario | null => {
+    const slice = sliceWindow(candles, rng, horizon);
+    if (!slice) return null;
+    const anchor = slice.visibleCount - 1;
+    const structure = readStructure(slice.candles, anchor);
+    const range = atr(slice.candles, anchor);
+    const side: Side = structure.bias === "DOWNTREND" ? "SHORT" : "LONG";
+    const entry = slice.candles[anchor].close;
+    return {
+      kind: "EXIT",
+      id: "exit",
+      seed,
+      symbol,
+      interval,
+      candles: slice.candles,
+      visibleCount: slice.visibleCount,
+      structure,
+      atr: range,
+      side,
+      entry,
+      stop: side === "LONG" ? entry - range * 1.2 : entry + range * 1.2,
+      horizon,
+    };
   };
+
+  // A window where the trade never goes anywhere has nothing to teach: there is
+  // no exit decision to get right, and closing flat scored a perfect 100, which
+  // is both meaningless and farmable. Resample until the tape actually offers
+  // something to manage.
+  let fallback: ExitScenario | null = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const candidate = build();
+    if (!candidate) break;
+    fallback ??= candidate;
+    if (exitBest(candidate).bestR >= 0.6) return candidate;
+  }
+  return fallback;
 }
 
 export type ExitAnswer = {
@@ -880,10 +896,12 @@ export function gradeExit(scenario: ExitScenario, answer: ExitAnswer): Grade {
   let capturePoints: number;
   let captureNote: string;
   if (bestR < 0.4) {
-    // The trade never worked. The skill on show is losing small.
-    capturePoints = Math.round(clamp(1 + answer.realisedR, 0, 1) * 70);
+    // The trade never worked, so there was no exit decision to get right.
+    // Generation now filters these out; if one still reaches here it must not
+    // be able to award full marks for doing nothing.
+    capturePoints = Math.round(clamp(1 + answer.realisedR, 0, 1) * 50);
     captureNote = answer.realisedR > -0.5
-      ? `這段行情最多只給了 ${bestR.toFixed(2)}R，本來就不是一筆好交易。你只賠了 ${answer.realisedR.toFixed(2)}R，控制得不錯。`
+      ? `這段行情最多只給了 ${bestR.toFixed(2)}R——根本沒有出場決策可做，所以這題拿不到滿分。你只賠了 ${answer.realisedR.toFixed(2)}R，控制得不錯。`
       : `這段行情最多只給了 ${bestR.toFixed(2)}R，而你賠掉 ${Math.abs(answer.realisedR).toFixed(2)}R。行情不動的時候，早點承認並離場。`;
   } else {
     capturePoints = Math.round(clamp(captured, 0, 1) * 70);

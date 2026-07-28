@@ -548,6 +548,38 @@ test("exitBest never looks past the stop-out", () => {
   assert.equal(exitBest(scenario).bestR, 0, "a move after the stop was never available to you");
 });
 
+test("exit scenarios always offer something to manage", () => {
+  // Regression: 7% of generated windows had no opportunity at all (best
+  // available under 0.4R). There is no exit decision to get right in those, and
+  // closing flat scored a perfect 100 — meaningless, and farmable by simply
+  // closing every trade immediately.
+  let checked = 0;
+  let dead = 0;
+  for (let index = 0; index < 60; index += 1) {
+    const candles = series(400, { seed: `alive-${index}`, drift: ((index % 5) - 2) * 0.0015 });
+    const scenario = generateExit(`al-${index}`, "BTCUSDT", "15m", candles);
+    if (!scenario) continue;
+    checked += 1;
+    if (exitBest(scenario).bestR < 0.4) dead += 1;
+  }
+  assert.ok(checked > 30, `expected a real sample, got ${checked}`);
+  assert.equal(dead, 0, `${dead}/${checked} scenarios offered no opportunity`);
+});
+
+test("doing nothing on a dead trade cannot score full marks", () => {
+  // Belt and braces for the filter above.
+  const flat: Candle[] = Array.from({ length: 90 }, (_, index) => ({
+    time: index * HOUR, open: 100, high: 100.2, low: 99.8, close: 100, volume: 1,
+  }));
+  const scenario = {
+    kind: "EXIT" as const, id: "exit", seed: "s", symbol: "BTCUSDT", interval: "15m" as const,
+    candles: flat, visibleCount: 60, structure: readStructure(flat, 59), atr: 1,
+    side: "LONG" as const, entry: 100, stop: 98.8, horizon: 24,
+  };
+  const grade = gradeExit(scenario, { closedIndex: 61, realisedR: 0, stoppedOut: false });
+  assert.ok(grade.score < 90, `a nothing-trade scored ${grade.score}`);
+});
+
 test("giving back a large winner scores worse than banking part of it", () => {
   const candles = series(400, { drift: 0.004, seed: "exit-tape" });
   const scenario = generateExit("exit-1", "BTCUSDT", "15m", candles);
