@@ -53,6 +53,30 @@ never deleting it:
 - Drill scenarios are seeded and reproducible. Randomness belongs in
   `lib/store/client.ts` or `lib/engine/rng.ts`, never in a component render.
 
+## Case studies (`/learn`)
+
+Teaching material is curated tape, not generated tape: fixed windows screened
+off the recent 24h gainers/losers board, stored in `lib/market/casePack.ts` and
+described by `lib/engine/cases.ts`. Three rules keep it from rotting:
+
+- **No authored numbers.** Every figure the learner reads is recomputed from the
+  case's own candles by the same primitives the graders use. The pack stores
+  candles and a label; it never stores a sentence claiming what those candles
+  did. If you find yourself writing a number into the pack, you are building a
+  way for the material and the grading to disagree.
+- **A case must keep classifying as its own label.** `classifyWindow` both finds
+  cases and re-verifies them in `tests/engine-cases.test.ts`. Loosening a screen
+  to keep a favourite window is how a "stop hunt" lesson ends up pointing at a
+  window with no stop hunt in it.
+- **Say which tape it is.** The generator prefers USDⓈ-M perpetuals and falls
+  back to Binance's public spot mirror when they are unreachable; whichever
+  answered is recorded per case and shown in the UI. Perp and spot are not the
+  same series and the material must never imply they are.
+
+Regenerate with `npm run build:cases`. The board changes daily, so a rerun
+swaps the case set; the generator self-checks before writing and fails rather
+than emitting material that teaches the wrong thing.
+
 ## Working rules
 
 - Make product changes on a feature branch (`codex/...` or `claude/...`), then

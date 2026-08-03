@@ -8,6 +8,7 @@ import { levelOf } from "@/lib/engine/scoring.ts";
 const LINKS = [
   { href: "/", label: "儀表板" },
   { href: "/train", label: "訓練" },
+  { href: "/learn", label: "案例教材" },
   { href: "/exam", label: "考試模擬" },
   { href: "/journal", label: "紀錄與診斷" },
 ];
