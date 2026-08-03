@@ -33,6 +33,10 @@ export default function TrainHub() {
           全部以客觀標準評分：方向題以一段行情判定而非單根 K 線，部位題有唯一數學正解，
           規則題的數字由引擎即時計算，沒有答案可背。
         </p>
+        <p className="tiny">
+          想先看做對長什麼樣子，再開始練？<Link href="/learn">案例教材</Link>
+          用最近漲跌幅榜上的真實 K 線，把每一種題型背後的判斷各走一遍。
+        </p>
       </header>
 
       <section className="drill-grid grow pane">
